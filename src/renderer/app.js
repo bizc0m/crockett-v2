@@ -1,5 +1,8 @@
 // ── CATALOG & DEFAULTS ──────────────────────────────────────────────────────
 
+const colorFluo = ["#FF0000","#FF7700","#FFFF00","#00FF00","#00FFFF","#0077FF","#0000FF","#FF00FF","#FF00AA","#FFAA00"];
+const colorPale = ["#FFB3B3","#FFD9B3","#FFFFB3","#B3FFB3","#B3FFFF","#B3D9FF","#B3B3FF","#FFB3FF","#FFB3D9","#FFD9B3"];
+
 const appCatalog = [
   { id: "gmail",    name: "Gmail",    url: "https://mail.google.com",         color: "#d94f43" },
   { id: "github",   name: "GitHub",   url: "https://github.com",              color: "#24292f" },
@@ -11,9 +14,9 @@ const appCatalog = [
 ];
 
 const defaultWorkspaces = [
-  { id: "work",     name: "Work",     icon: "W", color: "#2f80ed" },
-  { id: "personal", name: "Personal", icon: "P", color: "#ffffff" },
-  { id: "focus",    name: "Focus",    icon: "F", color: "#e5484d" }
+  { id: "work",     name: "Work",     icon: "W", color: "#2f80ed", backgroundColor: "transparent" },
+  { id: "personal", name: "Personal", icon: "P", color: "#ffffff", backgroundColor: "transparent" },
+  { id: "focus",    name: "Focus",    icon: "F", color: "#e5484d", backgroundColor: "transparent" }
 ];
 
 const defaultAppsByWorkspace = {
@@ -44,7 +47,7 @@ const STARTER = {
 };
 
 // Ephemeral UI state (not persisted)
-let ui = { menu: null, propertiesAppId: null, propertiesWorkspaceId: null, shareDraft: null, activeTabId: null, toast: null };
+let ui = { menu: null, propertiesAppId: null, propertiesWorkspaceId: null, shareDraft: null, activeTabId: null, toast: null, groupMenuOpen: null };
 
 let S = loadState();
 const root = document.getElementById("app");
@@ -97,12 +100,12 @@ function migrate(raw) {
   const wsList = Array.isArray(s.workspaces) ? s.workspaces.filter(w => w && typeof w === "object") : [];
   const wsById = new Map(wsList.map(w => [w.id, w]));
   const merged = defaultWorkspaces.map((w, i) => ({
-    color: defaultWorkspaces[i]?.color || "#f8f3ea", highlightColor: "", iconImage: "",
+    color: defaultWorkspaces[i]?.color || "#f8f3ea", highlightColor: "", iconImage: "", backgroundColor: "transparent",
     priority: i + 1, shortcut: "", collapsed: false, ...w, ...(wsById.get(w.id) || {})
   }));
   defaultWorkspaces.forEach((w, i) => { if (merged[i]) merged[i].color = w.color; });
   const extras = wsList.filter(w => !defaultWorkspaces.some(d => d.id === w.id));
-  s.workspaces = [...merged, ...extras];
+  s.workspaces = [...merged, ...extras].map(ws => ({ ...ws, backgroundColor: ws.backgroundColor || "transparent" }));
 
   // Apps
   s.appsByWorkspace ||= {};
@@ -599,14 +602,25 @@ function render() {
         const gApps = (S.appsByWorkspace[g.id] || []).filter(a => (S.showHiddenApps || !a.hidden) && (!S.hideCachableApps || !a.cachable));
         const col = Boolean(g.collapsed);
         return `
-          <div class="unified-group${col?" collapsed":""}" data-ws-drop="${esc(g.id)}">
+          <div class="unified-group${col?" collapsed":""}" data-ws-drop="${esc(g.id)}" style="background: ${esc(g.backgroundColor || "transparent")};">
             <div class="unified-group-row${g.id === ws.id?" active":""}">
               <button class="outliner-toggle" data-toggle-ws="${esc(g.id)}" title="${col?"Déplier":"Replier"}">${col?"▸":"▾"}</button>
               <button class="unified-group-title" draggable="true" data-ws="${esc(g.id)}" title="${esc(g.name)} - Cmd/Ctrl+${gi+1}" style="--highlight:${esc(g.highlightColor||"transparent")}">
                 ${g.iconImage?`<img src="${esc(g.iconImage)}" alt="" />`:`<span class="group-glyph">${esc(g.icon||"")}</span>`}
                 <span>${esc(g.name)}${gApps.length?` (${gApps.length})`:""}</span>
               </button>
+              <button class="group-menu-btn" data-group-menu-btn="${esc(g.id)}" title="Fond">⋮</button>
             </div>
+            ${ui.groupMenuOpen === g.id ? `
+            <div class="group-color-menu">
+              <div class="color-grid">
+                ${colorFluo.map(c => `<button class="color-btn" data-bg-color="${esc(g.id)}:${esc(c)}" style="background: ${esc(c)};" title="${esc(c)}"></button>`).join("")}
+              </div>
+              <div class="color-grid">
+                ${colorPale.map(c => `<button class="color-btn" data-bg-color="${esc(g.id)}:${esc(c)}" style="background: ${esc(c)};" title="${esc(c)}"></button>`).join("")}
+              </div>
+            </div>
+            ` : ""}
             <div class="app-list"${col?" hidden":""}>
               ${gApps.map(a => {
                 const icon = a.iconImage || favicon(a.url);
@@ -1346,6 +1360,26 @@ function onClick(e) {
     const [wid, aid] = appBtn.dataset.wsApp.split(":");
     selectApp(aid, wid); return;
   }
+
+  const groupMenuBtn = t.closest("[data-group-menu-btn]");
+  if (groupMenuBtn) {
+    const wid = groupMenuBtn.dataset.groupMenuBtn;
+    ui.groupMenuOpen = ui.groupMenuOpen === wid ? null : wid;
+    render(); return;
+  }
+
+  const bgColorBtn = t.closest("[data-bg-color]");
+  if (bgColorBtn) {
+    const [wid, color] = bgColorBtn.dataset.bgColor.split(":");
+    const ws = findWorkspace(wid);
+    if (ws) {
+      ws.backgroundColor = color;
+      ui.groupMenuOpen = null;
+      commit();
+    }
+    return;
+  }
+
   if (t.closest("[data-add-ws]"))      { addWorkspace(); return; }
   if (t.closest("[data-toggle-cachable]")) { S.hideCachableApps=!S.hideCachableApps; commit(); return; }
   if (t.closest("[data-open-add]"))    { document.getElementById("add-modal")?.classList.add("open"); return; }

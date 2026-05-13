@@ -1724,3 +1724,33 @@ body.skin-biscuit .cookie-footer button {
 .tab-flag-pin    { background: var(--accent); color: #fff; }
 .tab-flag-mute   { background: var(--muted);  color: #fff; }
 .tab-flag-secret { background: #444;           color: #fff; }
+
+.group-menu-btn { padding: 0 4px; font-size: 13px; cursor: pointer; flex-shrink: 0; color: #999; }
+
+.group-color-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: #f9f7f3;
+  border-top: 1px solid #e8e0d8;
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+}
+
+.color-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: transform 100ms ease;
+}
+
+.color-btn:hover {
+  transform: scale(1.1);
+}
