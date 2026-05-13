@@ -1,13 +1,13 @@
 // ── CATALOG & DEFAULTS ──────────────────────────────────────────────────────
 
 const appCatalog = [
-  { id: "gmail",    name: "Gmail",    url: "https://mail.google.com",         color: "#d94f43", splittable: true },
-  { id: "github",   name: "GitHub",   url: "https://github.com",              color: "#24292f", splittable: true },
-  { id: "slack",    name: "Slack",    url: "https://slack.com/signin",        color: "#4a154b", splittable: true },
-  { id: "notion",   name: "Notion",   url: "https://www.notion.so",           color: "#111111", splittable: true },
-  { id: "calendar", name: "Calendar", url: "https://calendar.google.com",     color: "#3478f6", splittable: true },
-  { id: "linear",   name: "Linear",   url: "https://linear.app",              color: "#5e6ad2", splittable: true },
-  { id: "chatgpt",  name: "ChatGPT",  url: "https://chatgpt.com",             color: "#10a37f", splittable: true }
+  { id: "gmail",    name: "Gmail",    url: "https://mail.google.com",         color: "#d94f43" },
+  { id: "github",   name: "GitHub",   url: "https://github.com",              color: "#24292f" },
+  { id: "slack",    name: "Slack",    url: "https://slack.com/signin",        color: "#4a154b" },
+  { id: "notion",   name: "Notion",   url: "https://www.notion.so",           color: "#111111" },
+  { id: "calendar", name: "Calendar", url: "https://calendar.google.com",     color: "#3478f6" },
+  { id: "linear",   name: "Linear",   url: "https://linear.app",              color: "#5e6ad2" },
+  { id: "chatgpt",  name: "ChatGPT",  url: "https://chatgpt.com",             color: "#10a37f" }
 ];
 
 const defaultWorkspaces = [
@@ -36,23 +36,22 @@ const STARTER = {
   cameraPermission: "ask", microphonePermission: "ask", locationPermission: "ask",
   fontScale: 100, uiFont: "system", syncEnabled: false, adBlockEnabled: false,
   chromeExtensions: [], rssFeedsByTab: {},
-  sidebarCollapsed: false, hideTopBar: false, secretsHidden: false, showHiddenApps: false, hideCachableApps: false,
+  sidebarCollapsed: false, secretsHidden: false, showHiddenApps: false, hideCachableApps: false,
   workspaces: defaultWorkspaces, activeWorkspaceId: "work",
   appsByWorkspace: defaultAppsByWorkspace,
   activeAppByWorkspace: { work: "gmail", personal: "notion", focus: "calendar" },
   tabsByApp: {}
 };
 
+// Ephemeral UI state (not persisted)
 let ui = { menu: null, propertiesAppId: null, propertiesWorkspaceId: null, shareDraft: null, activeTabId: null, toast: null };
 
 let S = loadState();
 const root = document.getElementById("app");
-let wvFrame = null;
+let wvFrame = null; // persistent — never destroyed between renders
 S.settingsOpen = false;
 
-let lastRenderState = { sidebarKey: null, toolbarKey: null, tabbarKey: null, chromeKey: null };
-const faviconMemo = new Map();
-
+// Platform class — used by CSS to handle macOS traffic lights
 if (navigator.userAgent.includes("Mac")) document.body.classList.add("platform-mac");
 
 function loadState() {
@@ -64,6 +63,7 @@ function loadState() {
 }
 
 function save() { localStorage.setItem("crokETT.state", JSON.stringify(S)); }
+
 function commit() { save(); render(); }
 
 function migrate(raw) {
@@ -72,45 +72,49 @@ function migrate(raw) {
   s.settingsOpen = false; s.settingsSection ||= "general";
   s.maskUrl = Boolean(s.maskUrl);
   s.groupIconSize = clamp(s.groupIconSize, 14, 72, 22);
-  s.appIconSize = clamp(s.appIconSize, 12, 58, 17);
+  s.appIconSize   = clamp(s.appIconSize,   12, 58, 17);
   s.splitView = Boolean(s.splitView); s.splitLeftAppId ||= ""; s.splitRightAppId ||= "";
   s.splitOrientation = ["horizontal","vertical"].includes(s.splitOrientation) ? s.splitOrientation : "horizontal";
   s.downloadsPath ||= ""; s.askDownloadLocation = s.askDownloadLocation !== false;
   s.globalNotifications = s.globalNotifications !== false;
   s.notificationSound = Boolean(s.notificationSound); s.notificationBadges = s.notificationBadges !== false;
   s.shortcutsEnabled = s.shortcutsEnabled !== false; s.compactShortcuts = Boolean(s.compactShortcuts);
-  s.cameraPermission = normPerm(s.cameraPermission);
-  s.microphonePermission = normPerm(s.microphonePermission);
+  s.cameraPermission = normPerm(s.cameraPermission); s.microphonePermission = normPerm(s.microphonePermission);
   s.locationPermission = normPerm(s.locationPermission);
   s.fontScale = clamp(s.fontScale, 80, 130, 100);
   s.uiFont = ["system","sans","serif","mono"].includes(s.uiFont) ? s.uiFont : "system";
   s.syncEnabled = Boolean(s.syncEnabled); s.adBlockEnabled = Boolean(s.adBlockEnabled);
-  s.chromeExtensions ||= []; s.rssFeedsByTab ||= {};
+  s.chromeExtensions = (s.chromeExtensions || [])
+    .map(e => ({ id:"", name:"Extension Chrome", path:"", enabled:true, status:"pending", error:"", ...e }))
+    .filter(e => e.path);
+  s.rssFeedsByTab ||= {};
   s.sidebarCollapsed = Boolean(s.sidebarCollapsed);
-  s.hideTopBar = Boolean(s.hideTopBar);
-  s.secretsHidden = Boolean(s.secretsHidden); s.showHiddenApps = Boolean(s.showHiddenApps); s.hideCachableApps = Boolean(s.hideCachableApps);
+  if (!s.layoutV4CompactApplied) { s.groupIconSize = 22; s.appIconSize = 17; s.layoutV4CompactApplied = true; }
+  s.secretsHidden = Boolean(s.secretsHidden); s.showHiddenApps = Boolean(s.showHiddenApps);
+  s.hideCachableApps = Boolean(s.hideCachableApps);
 
-  s.workspaces ||= structuredClone(defaultWorkspaces);
-  s.workspaces.forEach((ws, i) => {
-    ws.id ||= defaultWorkspaces[i]?.id || `ws-${i}`;
-    ws.name ||= defaultWorkspaces[i]?.name || `Workspace ${i+1}`;
-    ws.icon ||= "";
-    ws.color ||= "#999";
-    ws.collapsed = Boolean(ws.collapsed);
-    ws.highlightColor ||= "transparent";
-    ws.iconImage ||= "";
-  });
+  // Workspaces
+  const wsList = Array.isArray(s.workspaces) ? s.workspaces.filter(w => w && typeof w === "object") : [];
+  const wsById = new Map(wsList.map(w => [w.id, w]));
+  const merged = defaultWorkspaces.map((w, i) => ({
+    color: defaultWorkspaces[i]?.color || "#f8f3ea", highlightColor: "", iconImage: "",
+    priority: i + 1, shortcut: "", collapsed: false, ...w, ...(wsById.get(w.id) || {})
+  }));
+  defaultWorkspaces.forEach((w, i) => { if (merged[i]) merged[i].color = w.color; });
+  const extras = wsList.filter(w => !defaultWorkspaces.some(d => d.id === w.id));
+  s.workspaces = [...merged, ...extras];
 
-  s.workspaces.forEach(w => {
+  // Apps
+  s.appsByWorkspace ||= {};
+  defaultWorkspaces.forEach(w => {
     if (!Array.isArray(s.appsByWorkspace[w.id]) || !s.appsByWorkspace[w.id].length)
       s.appsByWorkspace[w.id] = structuredClone(defaultAppsByWorkspace[w.id] || []);
   });
-
-  Object.keys(s.appsByWorkspace || {}).forEach(wid => {
+  Object.keys(s.appsByWorkspace).forEach(wid => {
     const apps = Array.isArray(s.appsByWorkspace[wid]) ? s.appsByWorkspace[wid] : [];
     s.appsByWorkspace[wid] = apps.map(a => ({
       notifications: true, notificationCount: 0, hidden: false, cachable: false,
-      priority: 0, secret: false, maskUrl: false, splittable: true, iconImage: "", highlightColor: "", color: "#e16f43",
+      priority: 0, secret: false, maskUrl: false, iconImage: "", highlightColor: "", color: "#e16f43",
       ...a
     }));
   });
@@ -138,42 +142,74 @@ function esc(v) {
 }
 function clamp(v, min, max, def) { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; }
 function normPerm(v) { return ["ask","allow","block"].includes(v) ? v : "ask"; }
-function normUrl(u) { try { return new URL(u).toString(); } catch { return u; } }
-function hostname(url) { try { return new URL(url).hostname; } catch { return ""; } }
-function initials(name) { return String(name).split(/\s+/).map(p => p[0]).join("").slice(0,2).toUpperCase(); }
-function favicon(url) {
-  if (faviconMemo.has(url)) return faviconMemo.get(url);
-  const d = hostname(url);
-  const result = d ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(d)}&sz=64` : "";
-  faviconMemo.set(url, result);
-  return result;
+function normUrl(v) {
+  const t = String(v || "").trim();
+  if (!t) return "about:blank";
+  if (/^https?:\/\//i.test(t) || t.startsWith("about:")) return t;
+  if (t.includes(".") && !t.includes(" ")) return `https://${t}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(t)}`;
 }
+function hostname(url) { try { return new URL(normUrl(url)).hostname; } catch { return ""; } }
+function favicon(url) { const d = hostname(url); return d ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(d)}&sz=64` : ""; }
+function initials(name) { return String(name).split(/\s+/).map(p => p[0]).join("").slice(0,2).toUpperCase(); }
+
+// ── QUERIES ───────────────────────────────────────────────────────────────────
 
 function activeWorkspace() { return S.workspaces.find(w => w.id === S.activeWorkspaceId) || S.workspaces[0]; }
-function activeApp() { const ws = activeWorkspace(); const appId = S.activeAppByWorkspace[ws.id]; return findApp(appId); }
-function activeApps() { const ws = activeWorkspace(); return S.appsByWorkspace[ws.id] || []; }
-function findApp(id) { for (const apps of Object.values(S.appsByWorkspace)) { const a = apps.find(x => x.id === id); if (a) return a; } return null; }
+function activeApps()      { return S.appsByWorkspace[S.activeWorkspaceId] || []; }
+function visibleApps() {
+  return activeApps().filter(a => {
+    if (!S.showHiddenApps && a.hidden) return false;
+    if (S.hideCachableApps && a.cachable) return false;
+    return true;
+  });
+}
+function activeApp() {
+  const apps = visibleApps();
+  const id = S.activeAppByWorkspace[S.activeWorkspaceId] || apps[0]?.id;
+  return apps.find(a => a.id === id) || apps[0];
+}
+function findApp(id)       { return activeApps().find(a => a.id === id); }
 function findWorkspace(id) { return S.workspaces.find(w => w.id === id); }
-function findWorkspaceForApp(appId) { for (const w of S.workspaces) { if ((S.appsByWorkspace[w.id] || []).some(a => a.id === appId)) return w; } return null; }
-function tabsFor(appId) { return S.tabsByApp[appId] || []; }
-function visibleTabs(appId) { return tabsFor(appId).filter(t => !S.secretsHidden || !t.secret); }
+function findWorkspaceForApp(appId) {
+  return Object.keys(S.appsByWorkspace).find(wid => (S.appsByWorkspace[wid] || []).some(a => a.id === appId));
+}
+function findTabById(tabId) {
+  for (const tabs of Object.values(S.tabsByApp)) {
+    const t = tabs.find(t => t.id === tabId);
+    if (t) return t;
+  }
+  return null;
+}
+function tabsFor(appId) {
+  if (!S.tabsByApp[appId]) {
+    const app = [...appCatalog, ...activeApps()].find(a => a.id === appId);
+    S.tabsByApp[appId] = [{ id:`${appId}-${Date.now()}`, title: app?.name || "Nouvel onglet", url: app?.url || "about:blank", secret: false, muted: false, pinned: false }];
+  }
+  return S.tabsByApp[appId];
+}
+function visibleTabs(appId) {
+  return S.secretsHidden ? tabsFor(appId).filter(t => !t.secret) : tabsFor(appId);
+}
 function activeTab() {
   const app = activeApp();
-  const tabs = app ? visibleTabs(app.id) : [];
+  if (!app) return null;
+  const tabs = visibleTabs(app.id);
+  if (!tabs.length) { ui.activeTabId = null; return null; }
   const t = tabs.find(t => t.id === ui.activeTabId) || tabs[0];
   ui.activeTabId = t.id;
   return t;
 }
-function activeWorkspaceApps() {
-  const ws = activeWorkspace();
-  return (S.appsByWorkspace[ws.id] || [])
-    .filter(a => (S.showHiddenApps || !a.hidden) && (!S.hideCachableApps || !a.cachable))
-    .map(a => ({ workspaceId: ws.id, app: a }));
+function visibleWorkspaceApps() {
+  return S.workspaces.flatMap(w =>
+    (S.appsByWorkspace[w.id] || [])
+      .filter(a => (S.showHiddenApps || !a.hidden) && (!S.hideCachableApps || !a.cachable))
+      .map(a => ({ workspaceId: w.id, app: a }))
+  );
 }
-
 function splitPane(side) {
   if (!S.splitView) return null;
-  const apps = activeWorkspaceApps();
+  const apps = visibleWorkspaceApps();
   if (!apps.length) return null;
   const savedId = side === "left" ? S.splitLeftAppId : S.splitRightAppId;
   const saved = apps.find(i => i.app.id === savedId);
@@ -188,6 +224,7 @@ function splitTabFor(app) {
   return visibleTabs(app.id)[0] || tabsFor(app.id)[0] || null;
 }
 function partition(appId, partitionKey, tab) {
+  // Chaque app a son propre container sauf si elle partage une partitionKey (cas duplication)
   if (tab.secret) return `persist:crokETT-secret-${tab.id}`;
   return `persist:crokETT-app-${partitionKey || appId}`;
 }
@@ -213,13 +250,76 @@ function selectApp(appId, workspaceId) {
   ui.menu = null;
   commit();
 }
+function selectTab(id) {
+  ui.activeTabId = id; ui.menu = null; render();
+}
+function doCloseTab(id) {
+  const app = activeApp(); if (!app) return;
+  const tabs = tabsFor(app.id);
+  if (tabs.length === 1) return;
+  S.tabsByApp[app.id] = tabs.filter(t => t.id !== id);
+  ui.activeTabId = visibleTabs(app.id)[0]?.id || null;
+  commit();
+}
+function createTab(url, secret = false) {
+  const app = activeApp(); if (!app) return;
+  const tab = { id:`${app.id}-${Date.now()}`, title: secret ? "Secret" : "Nouvel onglet", url: normUrl(url || app.url), secret, muted: false, pinned: false };
+  S.tabsByApp[app.id] = [...tabsFor(app.id), tab];
+  ui.activeTabId = tab.id; S.secretsHidden = false; commit();
+}
+function createTabInApp(appId, url) {
+  const wid = findWorkspaceForApp(appId); if (!wid) return;
+  const app = (S.appsByWorkspace[wid] || []).find(a => a.id === appId); if (!app) return;
+  const tab = { id:`${appId}-${Date.now()}`, title:"Nouvel onglet", url: normUrl(url || app.url), secret: false, muted: false, pinned: false };
+  S.tabsByApp[appId] = [...tabsFor(appId), tab];
+  S.activeWorkspaceId = wid; S.activeAppByWorkspace[wid] = appId; ui.activeTabId = tab.id; commit();
+}
+function closeOtherTabs(id) {
+  const app = activeApp(); if (!app) return;
+  const t = tabsFor(app.id).find(t => t.id === id); if (!t) return;
+  S.tabsByApp[app.id] = [t]; ui.activeTabId = id; commit();
+}
+function closeTabsToRight(id) {
+  const app = activeApp(); if (!app) return;
+  const tabs = tabsFor(app.id);
+  const idx = tabs.findIndex(t => t.id === id); if (idx < 0) return;
+  S.tabsByApp[app.id] = tabs.slice(0, idx + 1);
+  if (!S.tabsByApp[app.id].some(t => t.id === ui.activeTabId)) ui.activeTabId = id;
+  commit();
+}
+function toggleTabMuted(id) { const t = findTabById(id); if (!t) return; t.muted = !t.muted; commit(); }
+function toggleTabPinned(id) { const t = findTabById(id); if (!t) return; t.pinned = !t.pinned; commit(); }
+function renamePinnedTab(id) {
+  const t = findTabById(id); if (!t?.pinned) return;
+  const title = window.prompt("Nom de l'onglet épinglé", t.title || "");
+  if (title === null) return;
+  t.title = title.trim() || t.title; commit();
+}
+function updateActiveTabUrl(url) {
+  const app = activeApp(); const tab = activeTab(); if (!app || !tab) return;
+  tab.url = normUrl(url); tab.title = tab.url.replace(/^https?:\/\//,"").replace(/\/$/,""); commit();
+}
+function toggleActiveTabSecret() {
+  const t = activeTab(); if (!t) return;
+  t.secret = !t.secret; if (t.secret) S.secretsHidden = false; commit();
+}
+function toggleSecretsHidden() {
+  S.secretsHidden = !S.secretsHidden;
+  const app = activeApp();
+  if (app) { const tabs = visibleTabs(app.id); if (tabs.length) ui.activeTabId = tabs[0].id; }
+  commit();
+}
 function setSplitPaneApp(side, appId) {
-  if (side === "left") S.splitLeftAppId = appId;
-  else S.splitRightAppId = appId;
+  const wid = findWorkspaceForApp(appId); if (!wid) return;
+  if (side === "left") {
+    S.splitLeftAppId = appId; S.activeWorkspaceId = wid;
+    S.activeAppByWorkspace[wid] = appId;
+    ui.activeTabId = visibleTabs(appId)[0]?.id || tabsFor(appId)[0]?.id || null;
+  }
+  if (side === "right") S.splitRightAppId = appId;
   commit();
 }
 function toggleSplitView() {
-  if (!S.splitView && activeApp()?.splittable === false) return;
   S.splitView = !S.splitView;
   if (S.splitView) {
     const l = splitPane("left"), r = splitPane("right");
@@ -228,45 +328,37 @@ function toggleSplitView() {
   }
   commit();
 }
+function splitAppToPane(appId, side) {
+  if (!findWorkspaceForApp(appId)) return;
+  if (!S.splitView) {
+    S.splitView = true;
+    S.splitLeftAppId = activeApp()?.id || appId;
+    S.splitRightAppId = appId;
+  }
+  setSplitPaneApp(side, appId);
+}
 function updateSplitPaneUrl(side, url) {
-  const paneAppId = side === "left" ? S.splitLeftAppId : S.splitRightAppId;
-  if (!paneAppId) return;
-  const tab = visibleTabs(paneAppId)[0];
-  if (tab) tab.url = normUrl(url);
+  const pane = splitPane(side); if (!pane?.app) return;
+  const tab = splitTabFor(pane.app); if (!tab) return;
+  tab.url = normUrl(url); tab.title = tab.url.replace(/^https?:\/\//,"").replace(/\/$/,"");
+  if (side === "left") { S.activeWorkspaceId = pane.workspaceId; S.activeAppByWorkspace[pane.workspaceId] = pane.app.id; ui.activeTabId = tab.id; }
   commit();
 }
-function toggleWorkspaceCollapsed(wid) {
-  const ws = findWorkspace(wid);
-  if (ws) { ws.collapsed = !ws.collapsed; save(); }
-}
 function addWorkspace() {
-  const newId = `ws-${Date.now()}`;
-  S.workspaces.push({ id: newId, name: "New Workspace", icon: "", color: "#999", collapsed: false, highlightColor: "", iconImage: "" });
-  S.appsByWorkspace[newId] = [];
-  S.activeAppByWorkspace[newId] = null;
-  selectWorkspace(newId);
+  const id = `group-${Date.now()}`;
+  const ws = { id, name:`Groupe ${S.workspaces.length + 1}`, icon: String(S.workspaces.length + 1).slice(-1), iconImage:"", color:"#f8f3ea", highlightColor:"", priority: S.workspaces.length + 1, shortcut:"", collapsed: false };
+  S.workspaces = [...S.workspaces, ws];
+  S.appsByWorkspace[id] = []; S.activeAppByWorkspace[id] = null; S.activeWorkspaceId = id;
+  ui.propertiesWorkspaceId = id; commit();
 }
-function updateWorkspaceProperties(wsId, fd) {
-  const ws = findWorkspace(wsId); if (!ws) return;
-  ws.name = String(fd.get("name") || ws.name).trim();
-  ws.icon = String(fd.get("icon") || "").trim();
-  ws.color = String(fd.get("color") || ws.color);
-  ws.highlightColor = String(fd.get("highlightColor") || "");
-  const imgFile = fd.get("iconImage");
-  if (imgFile instanceof File && imgFile.size > 0) {
-    const reader = new FileReader();
-    reader.onload = () => { ws.iconImage = reader.result; save(); render(); };
-    reader.readAsDataURL(imgFile);
-  }
-  ui.propertiesWorkspaceId = null; commit();
-}
-function addApp(name, url) {
-  if (!name || !url) return;
-  const newId = `app-${Date.now()}`;
-  const app = { id: newId, name: String(name).trim(), url: normUrl(url), color: "#e16f43", priority: 0, notifications: true, notificationCount: 0, highlightColor: "", iconImage: "", cachable: false, hidden: false, secret: false, maskUrl: false, partitionKey: "", splittable: true };
-  activeApps().push(app);
-  S.tabsByApp[newId] = [{ id: `${newId}-home`, title: app.name, url: app.url, secret: false, muted: false, pinned: false }];
-  selectApp(newId);
+function addCustomApp({ name, url }) {
+  const normalized = normUrl(url);
+  const id = `${String(name).toLowerCase().replace(/[^a-z0-9]+/g,"-")}-${Date.now()}`;
+  const app = { id, name: String(name).trim() || "App", url: normalized, color:"#e16f43", highlightColor:"", iconImage:"", notifications:true, notificationCount:0, hidden:false, cachable:false, priority:0, secret:false, maskUrl:false };
+  S.appsByWorkspace[S.activeWorkspaceId] = [...activeApps(), app];
+  S.activeAppByWorkspace[S.activeWorkspaceId] = id;
+  S.tabsByApp[id] = [{ id:`${id}-home`, title: app.name, url: normalized, secret: false, muted: false, pinned: false }];
+  ui.activeTabId = `${id}-home`; commit();
 }
 function updateAppProperties(appId, fd) {
   const app = findApp(appId); if (!app) return;
@@ -276,7 +368,6 @@ function updateAppProperties(appId, fd) {
   app.notifications = fd.get("notifications") === "on"; app.notificationCount = Number(fd.get("notificationCount") || 0);
   app.priority = Number(fd.get("priority") || 0); app.cachable = fd.get("cachable") === "on";
   app.hidden = fd.get("hidden") === "on"; app.secret = fd.get("secret") === "on"; app.maskUrl = fd.get("maskUrl") === "on";
-  app.splittable = fd.get("splittable") === "on";
   const ht = tabsFor(appId)[0]; if (ht) { ht.title = app.name; ht.url = app.url; ht.secret = app.secret; }
   ui.propertiesAppId = null; commit();
 }
@@ -292,36 +383,173 @@ function deleteApp(appId) {
 }
 function duplicateApp(appId) {
   const app = findApp(appId); if (!app) return;
+  // La copie hérite la partitionKey de l'original pour partager les cookies
   const sharedKey = app.partitionKey || appId;
   const copy = { ...app, id:`${appId}-copy-${Date.now()}`, name:`${app.name} 2`, hidden: false, partitionKey: sharedKey };
   S.appsByWorkspace[S.activeWorkspaceId] = [...activeApps(), copy];
   S.tabsByApp[copy.id] = [{ id:`${copy.id}-home`, title: copy.name, url: copy.url, secret: false, muted: false, pinned: false }];
   selectApp(copy.id);
 }
-function addTab(appId, secret = false) {
-  if (!appId) return;
+function toggleAppHidden(appId) {
   const app = findApp(appId); if (!app) return;
-  const newId = `${appId}-${Date.now()}`;
-  const tabs = tabsFor(appId);
-  tabs.push({ id: newId, title: app.name, url: app.url, secret, muted: false, pinned: false });
-  S.activeAppByWorkspace[S.activeWorkspaceId] = appId;
-  ui.activeTabId = newId;
+  app.hidden = !app.hidden;
+  if (app.hidden && S.activeAppByWorkspace[S.activeWorkspaceId] === appId) {
+    const next = visibleApps().find(a => a.id !== appId);
+    if (next) S.activeAppByWorkspace[S.activeWorkspaceId] = next.id;
+  }
   commit();
 }
-function closeTab(tabId) {
-  const app = activeApp(); if (!app) return;
-  const tabs = tabsFor(app.id);
-  const idx = tabs.findIndex(t => t.id === tabId);
-  if (idx < 0 || tabs.length <= 1) return;
-  tabs.splice(idx, 1);
-  ui.activeTabId = tabs[0].id;
+function updateWorkspaceProperties(wid, fd) {
+  const ws = findWorkspace(wid); if (!ws) return;
+  ws.name = String(fd.get("name") || ws.name).trim();
+  ws.icon = String(fd.get("icon") || ws.icon).trim().slice(0,2).toUpperCase();
+  ws.iconImage = String(fd.get("iconImage") || "").trim();
+  ws.color = String(fd.get("color") || ws.color); ws.highlightColor = String(fd.get("highlightColor") || "");
+  ws.priority = Number(fd.get("priority") || 0); ws.shortcut = String(fd.get("shortcut") || "").trim();
+  ws.collapsed = fd.get("collapsed") === "on";
+  ui.propertiesWorkspaceId = null; commit();
+}
+function toggleWorkspaceCollapsed(wid) {
+  const ws = findWorkspace(wid); if (!ws) return;
+  ws.collapsed = !ws.collapsed; commit();
+}
+function moveWorkspace(srcId, tgtId) {
+  if (srcId === tgtId) return;
+  const si = S.workspaces.findIndex(w => w.id === srcId);
+  const ti = S.workspaces.findIndex(w => w.id === tgtId);
+  if (si < 0 || ti < 0) return;
+  const [item] = S.workspaces.splice(si, 1);
+  S.workspaces.splice(ti, 0, item); commit();
+}
+function moveApp(srcId, tgtId) {
+  if (srcId === tgtId) return;
+  const sw = findWorkspaceForApp(srcId) || S.activeWorkspaceId;
+  const tw = findWorkspaceForApp(tgtId) || S.activeWorkspaceId;
+  const sa = S.appsByWorkspace[sw] || [];
+  const si = sa.findIndex(a => a.id === srcId);
+  const ta = S.appsByWorkspace[tw] || [];
+  const ti = ta.findIndex(a => a.id === tgtId);
+  if (si < 0 || ti < 0) return;
+  const [item] = sa.splice(si, 1);
+  const adj = sw === tw && si < ti ? ti - 1 : ti;
+  ta.splice(adj, 0, item);
+  S.appsByWorkspace[sw] = sa; S.appsByWorkspace[tw] = ta;
+  S.activeWorkspaceId = tw; S.activeAppByWorkspace[tw] = srcId; commit();
+}
+function moveAppToWorkspace(srcId, twid) {
+  const swid = findWorkspaceForApp(srcId);
+  if (!swid || !twid || swid === twid) return;
+  const sa = S.appsByWorkspace[swid] || [];
+  const si = sa.findIndex(a => a.id === srcId); if (si < 0) return;
+  const [item] = sa.splice(si, 1);
+  S.appsByWorkspace[twid] = [...(S.appsByWorkspace[twid] || []), item];
+  S.appsByWorkspace[swid] = sa; S.activeWorkspaceId = twid; S.activeAppByWorkspace[twid] = item.id; commit();
+}
+function incrementNotification(appId) {
+  if (!S.globalNotifications) return;
+  const app = findApp(appId); if (!app || !app.notifications) return;
+  app.notificationCount = Number(app.notificationCount || 0) + 1; commit();
+}
+function exportConfig() {
+  const blob = new Blob([JSON.stringify(S, null, 2)], { type:"application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url;
+  a.download = `crokETT-config-${new Date().toISOString().slice(0,10)}.json`;
+  a.click(); URL.revokeObjectURL(url);
+}
+function importConfig(file) {
+  if (!file) return;
+  if (!confirm("Importer ce fichier remplacera toute la configuration actuelle.\nContinuer ?")) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { S = migrate(JSON.parse(String(reader.result || ""))); ui.activeTabId = null; commit(); }
+    catch { showToast("Fichier JSON invalide ou corrompu.", "error"); }
+  };
+  reader.readAsText(file);
+}
+function syncNative() {
+  window.crokETT?.setPermissions?.({
+    notifications: S.globalNotifications ? "allow" : "block",
+    camera: S.cameraPermission, microphone: S.microphonePermission,
+    media: S.cameraPermission === "block" || S.microphonePermission === "block" ? "block" : "ask",
+    geolocation: S.locationPermission
+  });
+  window.crokETT?.setPreferences?.({ askDownloadLocation: S.askDownloadLocation, downloadsPath: S.downloadsPath });
+}
+async function openShare() {
+  const tab = activeTab(); if (!tab) return;
+  ui.shareDraft = { text:"", title: tab.title, url: tab.url };
+  ui.menu = null; render();
+  const wv = document.querySelector("webview.active");
+  if (!wv) return;
+  try {
+    const sel = await Promise.race([
+      wv.executeJavaScript("String(window.getSelection?.()?.toString() || '')"),
+      new Promise(r => setTimeout(() => r(""), 450))
+    ]);
+    if (ui.shareDraft?.url === tab.url) { ui.shareDraft.text = String(sel || "").trim(); render(); }
+  } catch { render(); }
+}
+function shareText() {
+  if (!ui.shareDraft) return "";
+  return `${ui.shareDraft.text ? ui.shareDraft.text + "\n\n" : ui.shareDraft.title + "\n"}${ui.shareDraft.url}`;
+}
+function shareTo(target) {
+  if (!ui.shareDraft) return;
+  const text = shareText();
+  if (target === "copy") { window.crokETT.copyText(text); ui.shareDraft = null; render(); return; }
+  if (target === "x") window.crokETT.openExternal(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`);
+  if (target === "linkedin") window.crokETT.openExternal(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(ui.shareDraft.url)}`);
+  if (target === "mail") window.crokETT.openExternal(`mailto:?subject=${encodeURIComponent(ui.shareDraft.title)}&body=${encodeURIComponent(text)}`);
+  if (target === "buffer") window.crokETT.openExternal(`https://buffer.com/add?text=${encodeURIComponent(text)}&url=${encodeURIComponent(ui.shareDraft.url)}`);
+}
+function showToast(msg, type = "info") {
+  const at = Date.now();
+  ui.toast = { msg, type, at };
+  render();
+  setTimeout(() => { if (ui.toast?.at === at) { ui.toast = null; render(); } }, 4000);
+}
+function renderToast() {
+  if (!ui.toast) return "";
+  return `<div class="toast toast-${esc(ui.toast.type)}" data-close-toast>${esc(ui.toast.msg)}</div>`;
+}
+function applyAdBlock(wv) {
+  if (!S.adBlockEnabled) return;
+  wv.insertCSS(`[id*="ad-"],[class*=" ad-"],[class^="ad-"],[class*=" ads"],iframe[src*="doubleclick"],iframe[src*="googlesyndication"],[aria-label*="advertisement" i],[aria-label*="publicité" i]{display:none!important}`).catch(()=>{});
+}
+function injectWebviewFont(wv) {
+  if (!S.uiFont || S.uiFont === "system") return;
+  const map = { sans: "'Helvetica Neue',Arial,sans-serif", serif: "Georgia,'Times New Roman',serif", mono: "'Courier New',Courier,monospace" };
+  const fam = map[S.uiFont]; if (!fam) return;
+  wv.insertCSS(`body,p,div,span,a,h1,h2,h3,h4,h5,h6,button,input,textarea,select{font-family:${fam}!important}`).catch(()=>{});
+}
+function hookNotifications(wv) {
+  wv.executeJavaScript(`(()=>{if(window.__crokETTHooked||!window.Notification)return;window.__crokETTHooked=true;const N=window.Notification;const r=p=>{try{console.info("__CROKETTS_NOTIFICATION__"+JSON.stringify(p||{}))}catch{}};function W(t,o){r({title:String(t||""),body:String((o&&o.body)||"")});return new N(t,o)}W.permission=N.permission;W.requestPermission=(...a)=>N.requestPermission(...a);W.prototype=N.prototype;try{Object.defineProperty(window,"Notification",{configurable:true,writable:true,value:W})}catch{}})()`).catch(()=>{});
+}
+async function loadChromeExtension() {
+  try {
+    const ext = await window.crokETT.chooseChromeExtension(); if (!ext) return;
+    S.chromeExtensions = [...S.chromeExtensions.filter(e => e.id !== ext.id), ext]; commit();
+  } catch(e) { showToast(`Extension non chargée : ${e?.message || e}`, "error"); }
+}
+async function setChromeExtEnabled(id, enabled) {
+  const ext = S.chromeExtensions.find(e => e.id === id); if (!ext) return;
+  ext.enabled = enabled;
+  try {
+    if (enabled) { const loaded = await window.crokETT.loadChromeExtension(ext.path); Object.assign(ext, loaded); }
+    else { await window.crokETT.unloadChromeExtension(id); ext.status = "disabled"; ext.error = ""; }
+  } catch(e) { ext.status = "error"; ext.error = e?.message || String(e); }
   commit();
 }
-function applyChrome() {
-  const chromeKey = `${S.density}|${S.skin}|${S.groupIconSize}|${S.appIconSize}|${S.fontScale}|${S.uiFont}|${S.customSkin.cream}|${S.customSkin.sidebar}|${S.customSkin.accent}`;
-  if (lastRenderState.chromeKey === chromeKey) return;
-  lastRenderState.chromeKey = chromeKey;
+async function removeChromeExtension(id) {
+  const ext = S.chromeExtensions.find(e => e.id === id);
+  if (ext?.id) await window.crokETT.unloadChromeExtension(ext.id).catch(()=>{});
+  S.chromeExtensions = S.chromeExtensions.filter(e => e.id !== id); commit();
+}
 
+// ── RENDER ────────────────────────────────────────────────────────────────────
+
+function applyChrome() {
   document.body.className = `density-${S.density} skin-${S.skin}`;
   const skin = S.skin === "custom" ? S.customSkin : null;
   document.body.style.setProperty("--custom-cream",   skin?.cream   || "");
@@ -345,9 +573,10 @@ function render() {
   const lTab  = splitTabFor(lApp) || tab, rTab = splitTabFor(rPane?.app);
   const maskUrl = S.maskUrl || Boolean(app?.maskUrl);
   const splitReady = Boolean(S.splitView && lPane && rPane && lTab && rTab);
-  const shellCls = ["shell", S.sidebarCollapsed?"sidebar-icons":"", S.hideTopBar?"hide-top-bar":"", S.secretsHidden?"secrets-hidden":"", S.maskUrl?"url-masked":"", splitReady?"split-view":"", splitReady&&S.splitOrientation==="vertical"?"split-bottom":""].filter(Boolean).join(" ");
+  const shellCls = ["shell", S.sidebarCollapsed?"sidebar-icons":"", S.secretsHidden?"secrets-hidden":"", S.maskUrl?"url-masked":"", splitReady?"split-view":"", splitReady&&S.splitOrientation==="vertical"?"split-bottom":""].filter(Boolean).join(" ");
   const menu = ui.menu;
 
+  // First render: build the persistent skeleton. wvFrame is created once and never destroyed.
   if (!wvFrame) {
     root.innerHTML = `<main></main><div id="overlays"></div>`;
     root.querySelector("main").innerHTML = `
@@ -356,20 +585,15 @@ function render() {
         <div class="toolbar"></div>
         <div class="tabbar"></div>
         <div class="web-stage"><div class="web-frame"></div></div>
-        <button class="topbar-toggle-float" data-toggle="hideTopBar" title="Masquer/Afficher la barre"></button>
       </section>`;
     wvFrame = root.querySelector(".web-frame");
   }
 
+  // Update shell class
   root.querySelector("main").className = shellCls;
-  const floatToggle = root.querySelector(".topbar-toggle-float");
-  if (floatToggle) { floatToggle.textContent = S.hideTopBar ? "⌃" : "⌄"; floatToggle.title = S.hideTopBar ? "Afficher la barre" : "Masquer la barre"; }
 
-  const sidebarKey = JSON.stringify([S.workspaces, S.appsByWorkspace, S.showHiddenApps, S.hideCachableApps, ws.id, app?.id]);
-  if (lastRenderState.sidebarKey !== sidebarKey) {
-    lastRenderState.sidebarKey = sidebarKey;
-    root.querySelector(".app-sidebar").innerHTML = `
-    <div class="mac-titlebar"></div>
+  // Update sidebar
+  root.querySelector(".app-sidebar").innerHTML = `
     <section class="sidebar-section">
       ${S.workspaces.map((g, gi) => {
         const gApps = (S.appsByWorkspace[g.id] || []).filter(a => (S.showHiddenApps || !a.hidden) && (!S.hideCachableApps || !a.cachable));
@@ -407,14 +631,10 @@ function render() {
       <button class="cookie-add-app" data-open-add>+ App</button>
       <button data-toggle-cachable>${S.hideCachableApps?"Afficher":"Masquer"}</button>
       <button data-open-settings="general">⚙ Réglages</button>
-    </div>
-    <button class="sidebar-collapse-btn" data-toggle="sidebarCollapsed" title="${S.sidebarCollapsed?"Déplier la colonne":"Réduire la colonne"}">${S.sidebarCollapsed?"›":"‹"}</button>`;
-  }
+    </div>`;
 
-  const toolbarKey = JSON.stringify([tab?.url, maskUrl, S.splitView, splitReady]);
-  if (lastRenderState.toolbarKey !== toolbarKey) {
-    lastRenderState.toolbarKey = toolbarKey;
-    root.querySelector(".toolbar").innerHTML = `
+  // Update toolbar
+  root.querySelector(".toolbar").innerHTML = `
     <div class="nav-controls">
       <button class="icon-button" data-nav="back" title="Retour">←</button>
       <button class="icon-button" data-nav="forward" title="Avant">→</button>
@@ -427,25 +647,22 @@ function render() {
     <div class="right-controls">
       <button class="icon-button" data-new-tab title="Nouvel onglet">+</button>
       <button class="icon-button" data-share title="Partager">⇪</button>
-      <button class="icon-button${splitReady?" armed":""}${app?.splittable===false?" disabled":""}" data-split-toggle title="${app?.splittable===false?"App non-splittable":"Double vue"}">Ⅱ</button>
+      <button class="icon-button${splitReady?" armed":""}" data-split-toggle title="Double vue">Ⅱ</button>
       <button class="icon-button page-menu-button" data-page-menu-btn title="Page">☰</button>
       <button class="icon-button" data-appbar-menu-btn title="App & groupe">⊙</button>
       <button class="icon-button" data-open-settings="general" title="Paramètres">⚙</button>
       <button class="icon-button" data-external title="Ouvrir navigateur">↗</button>
     </div>`;
-  }
 
-  const tabbarKey = JSON.stringify(vtabs.map(t => `${t.id}:${t.title}:${t.secret}:${t.pinned}:${t.muted}`).join(","));
-  if (lastRenderState.tabbarKey !== tabbarKey) {
-    lastRenderState.tabbarKey = tabbarKey;
-    root.querySelector(".tabbar").innerHTML = vtabs.map(t => `
+  // Update tabbar
+  root.querySelector(".tabbar").innerHTML = vtabs.map(t => `
     <button class="tab${t.id===ui.activeTabId?" active":""}${t.secret?" secret":""}${t.pinned?" pinned":""}${t.muted?" muted":""}" data-tab="${esc(t.id)}">
       <span class="tab-title">${t.pinned?`<span class="tab-flag tab-flag-pin" title="Épinglé">▲</span>`:""}${t.muted?`<span class="tab-flag tab-flag-mute" title="Muet">◉</span>`:""}${t.secret?`<span class="tab-flag tab-flag-secret" title="Secret">◈</span>`:""}${esc(t.title)}</span>
       <span class="tab-menu-trigger" data-tab-menu="${esc(t.id)}">⌄</span>
       <span class="tab-close" data-close-tab="${esc(t.id)}">×</span>
     </button>`).join("");
-  }
 
+  // Update overlays (modals + context menus) — webviews are never inside here
   document.getElementById("overlays").innerHTML = `
     ${renderAddModal()}
     ${renderPropertiesModal()}
@@ -460,6 +677,7 @@ function render() {
     ${renderToast()}
   `;
 
+  // Update webviews without ever detaching them from the DOM
   syncWebviews(wvFrame, ws, app, splitReady, lPane, lTab, rPane, rTab);
   wireWebviews();
 }
@@ -470,9 +688,12 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
 
   if (splitReady) {
     const lTabId = lTab?.id || "", rTabId = rTab?.id || "";
+
     for (const side of ["left", "right"]) {
       const pane = side === "left" ? lPane : rPane;
       const pTab = side === "left" ? lTab  : rTab;
+
+      // Find or create section
       let section = frame.querySelector(`[data-split-pane="${side}"]`);
       if (!section) {
         section = document.createElement("section");
@@ -480,14 +701,17 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
         section.dataset.splitPane = side;
         frame.appendChild(section);
       }
+
+      // Update toolbar IN PLACE — never destroy it (destroying causes layout jump → flash)
       let toolbar = section.querySelector(".split-pane-toolbar");
       if (!toolbar) {
         toolbar = document.createElement("div");
         toolbar.className = "split-pane-toolbar";
         section.insertBefore(toolbar, section.firstChild);
       }
-      const apps = activeWorkspaceApps();
+      const apps = visibleWorkspaceApps();
       const selId = pane?.app?.id || "";
+      // Rebuild select only if app list changed
       const select = toolbar.querySelector("select");
       if (!select || select.dataset.splitSelect !== side || select.value !== selId) {
         const newSel = document.createElement("select");
@@ -496,6 +720,7 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
         if (select) select.replaceWith(newSel);
         else toolbar.insertBefore(newSel, toolbar.firstChild);
       }
+      // Update URL input value without recreating the element
       let urlForm = toolbar.querySelector("form");
       if (!urlForm) {
         urlForm = document.createElement("form");
@@ -508,6 +733,7 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
       const urlInput = urlForm.querySelector("input");
       if (urlInput && document.activeElement !== urlInput) urlInput.value = pTab?.url || "";
 
+      // Webview: always find by tab ID — never by "any webview in section"
       if (pane?.app && pTab) {
         section.querySelector(".empty-state")?.remove();
         let wv = frame.querySelector(`webview[data-tab-id="${pTab.id}"]`);
@@ -519,10 +745,10 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
           wv.setAttribute("data-app-id", pane.app.id);
           wv.setAttribute("allowpopups", "");
         }
-        const newClass = `active pane-${side}`;
-        if (wv.className !== newClass) wv.className = newClass;
-        if (wv.dataset.muted !== (pTab.muted ? "true" : "false")) wv.dataset.muted = pTab.muted ? "true" : "false";
+        wv.className = `active pane-${side}`;
+        wv.dataset.muted = pTab.muted ? "true" : "false";
         if (wv.parentElement !== section) section.appendChild(wv);
+        // Evict stale webviews that don't belong to this pane
         section.querySelectorAll("webview").forEach(w => { if (w !== wv) frame.appendChild(w); });
       } else {
         section.querySelectorAll("webview").forEach(wv => frame.appendChild(wv));
@@ -534,10 +760,12 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
         }
       }
     }
+    // Drop orphaned webviews not belonging to either pane
     frame.querySelectorAll(":scope > webview").forEach(wv => {
       if (wv.dataset.tabId !== lTabId && wv.dataset.tabId !== rTabId) wv.remove();
     });
   } else {
+    // Move webviews from split sections back into frame before removing sections
     frame.querySelectorAll(".split-pane").forEach(s => {
       s.querySelectorAll("webview").forEach(wv => frame.appendChild(wv));
       s.remove();
@@ -560,12 +788,17 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
             wv.setAttribute("allowpopups", "");
             frame.appendChild(wv);
           }
-          const wvClass = t.id === ui.activeTabId ? "active pane-left" : "";
-          if (wv.className !== wvClass) wv.className = wvClass;
-          if (wv.dataset.muted !== (t.muted ? "true" : "false")) wv.dataset.muted = t.muted ? "true" : "false";
+          wv.className = t.id === ui.activeTabId ? "active pane-left" : "";
+          wv.dataset.muted = t.muted ? "true" : "false";
         });
+      } else {
+        const box = document.createElement("div");
+        box.className = "empty-state";
+        box.innerHTML = `<div class="empty-box"><h1>${S.secretsHidden?"Onglets secrets cachés":"Ajoute une app"}</h1><p>${S.secretsHidden?"Cmd/Ctrl+Shift+H les réaffiche.":"CrokETT organise les apps web par workspace."}</p></div>`;
+        frame.appendChild(box);
       }
     } else {
+      frame.querySelectorAll("webview").forEach(wv => wv.remove());
       const box = document.createElement("div");
       box.className = "empty-state";
       box.innerHTML = `<div class="empty-box"><h1>${S.secretsHidden?"Onglets secrets cachés":"Ajoute une app"}</h1><p>${S.secretsHidden?"Cmd/Ctrl+Shift+H les réaffiche.":"CrokETT organise les apps web par workspace."}</p><button class="primary" data-open-add>Ajouter</button></div>`;
@@ -574,71 +807,124 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
   }
 }
 
-function wireWebviews() {
-  root.querySelectorAll("webview:not([__wired])").forEach(wv => {
-    wv.setAttribute("__wired", "");
-    wv.addEventListener("context-menu", (e) => {
-      ui.menu = { kind: "page", x: e.params.x, y: e.params.y };
-      ui.menu.wv = wv;
-      render();
-    });
-    wv.addEventListener("did-start-loading", () => { if (wv.classList.contains("active")) root.querySelector(".browser")?.classList.add("loading"); });
-    wv.addEventListener("did-stop-loading", () => { if (wv.classList.contains("active")) root.querySelector(".browser")?.classList.remove("loading"); });
-    wv.addEventListener("did-finish-load", () => {
-      hookNotifications(wv);
-      applyAdBlock(wv);
-      applyMute(wv);
-      injectWebviewFont(wv);
-    });
-  });
+function renderSplitPane(side, pane, tab) {
+  const apps = visibleWorkspaceApps();
+  const selId = pane?.app?.id || "";
+  return `
+    <section class="split-pane" data-split-pane="${side}">
+      <div class="split-pane-toolbar">
+        <select data-split-select="${side}">
+          ${apps.map(i => `<option value="${esc(i.app.id)}"${i.app.id===selId?" selected":""}>${esc(i.app.name)}</option>`).join("")}
+        </select>
+        <form data-split-url="${side}">
+          <input name="url" value="${esc(tab?.url||"")}" autocomplete="off" spellcheck="false" />
+        </form>
+      </div>
+      ${pane?.app && tab
+        ? `<webview class="active pane-${side}" src="${esc(tab.url)}" partition="${esc(partition(pane.app.id,pane.app.partitionKey,tab))}" data-tab-id="${esc(tab.id)}" data-app-id="${esc(pane.app.id)}" data-muted="${tab.muted?"true":"false"}" allowpopups></webview>`
+        : `<div class="empty-state">Dépose une app ici</div>`}
+    </section>`;
 }
 
-function injectWebviewFont(wv) {
-  if (!S.uiFont || S.uiFont === "system") return;
-  const map = { sans: "'Helvetica Neue',Arial,sans-serif", serif: "Georgia,'Times New Roman',serif", mono: "'Courier New',Courier,monospace" };
-  const fam = map[S.uiFont]; if (!fam) return;
-  wv.insertCSS(`body,p,div,span,a,h1,h2,h3,h4,h5,h6,button,input,textarea,select{font-family:${fam}!important}`).catch(()=>{});
+function renderContextMenu(menu) {
+  if (menu?.kind !== "app") return "";
+  const app = findApp(menu.appId); if (!app) return "";
+  return `<div class="context-menu" style="left:${menu.x}px;top:${menu.y}px">
+    <button data-ctx="open">Ouvrir</button>
+    <button data-ctx="new-tab">Nouvel onglet</button>
+    <button data-ctx="secret-tab">Onglet secret</button>
+    <button data-ctx="split-left">Split gauche</button>
+    <button data-ctx="split-right">Split droite</button>
+    <button data-ctx="properties">Propriétés</button>
+    <button data-ctx="duplicate">Dupliquer</button>
+    <button data-ctx="notifications">${app.notifications?"Couper notifications":"Activer notifications"}</button>
+    <button data-ctx="hidden">${app.hidden?"Afficher":"Cacher"}</button>
+    <button data-ctx="clear-count">Reset compteur</button>
+    <button data-ctx="delete" class="danger-text">Supprimer</button>
+  </div>`;
 }
 
-function hookNotifications(wv) {
-  if (!S.globalNotifications) return;
-  wv.executeJavaScript(`
-    window.Notification = window.Notification || class {
-      constructor(title, opts) {
-        this.title = title;
-        this.options = opts;
-        window.__notifyCount = (window.__notifyCount || 0) + 1;
-      }
-    };
-  `).catch(()=>{});
+function renderTabMenu(menu) {
+  if (menu?.kind !== "tab") return "";
+  const tab = findTabById(menu.tabId); if (!tab) return "";
+  const app = activeApp(), ws = activeWorkspace();
+  const otherGroups = S.workspaces.map(g => ({ g, apps:(S.appsByWorkspace[g.id]||[]).filter(a=>a.id!==app?.id) })).filter(g=>g.apps.length);
+  return `<div class="context-menu tab-menu" style="left:${menu.x}px;top:${menu.y}px">
+    <button data-tab-act="new-tab">Nouvel onglet</button>
+    <hr/>
+    <button data-tab-act="close">Fermer l'onglet</button>
+    <button data-tab-act="close-others">Fermer les autres</button>
+    <button data-tab-act="close-right">Fermer à droite</button>
+    <hr/>
+    <button data-tab-act="open-browser">Ouvrir dans le navigateur</button>
+    <button data-tab-act="open-window">Nouvelle fenêtre</button>
+    <hr/>
+    <button data-tab-act="split-right">Diviser à droite</button>
+    <button data-tab-act="split-bottom">Diviser en bas</button>
+    <hr/>
+    <button data-tab-act="mute">${tab.muted?"Rétablir le son":"Couper le son"}</button>
+    <button data-tab-act="pin">${tab.pinned?"Désépingler":"Épingler l'onglet"}</button>
+    <button data-tab-act="rename"${tab.pinned?"":" disabled"}>Renommer l'onglet épinglé</button>
+    ${otherGroups.length?`<hr/><div class="context-label">Ouvrir dans une autre app</div>${otherGroups.map(({g,apps})=>`<div class="context-label">${esc(g.name)}</div>${apps.map(a=>`<button data-tab-act="open-app" data-app-id="${esc(a.id)}">${esc(a.name)}</button>`).join("")}`).join("")}`:""}
+  </div>`;
 }
 
-function applyAdBlock(wv) {}
-function applyMute(wv) {
-  const tab = tabsFor(wv.dataset.appId).find(t => t.id === wv.dataset.tabId);
-  if (tab?.muted && typeof wv.setAudioMuted === "function") wv.setAudioMuted(true);
+function renderWorkspaceMenu(menu) {
+  if (menu?.kind !== "workspace") return "";
+  return `<div class="context-menu" style="left:${menu.x}px;top:${menu.y}px">
+    <button data-ws-act="properties">Propriétés groupe</button>
+    <button data-ws-act="previous">Groupe précédent</button>
+    <button data-ws-act="next">Groupe suivant</button>
+  </div>`;
 }
 
-function showToast(msg, type = "info") {
-  const at = Date.now();
-  ui.toast = { msg, type, at };
-  render();
-  setTimeout(() => { if (ui.toast?.at === at) { ui.toast = null; render(); } }, 4000);
+function renderPageMenu(menu) {
+  if (menu?.kind !== "page") return "";
+  const tab = activeTab();
+  const x = menu.x, y = menu.y;
+  return `<div class="context-menu page-menu" style="left:${x}px;top:${y}px">
+    <div class="context-label">Page</div>
+    <button data-page-act="back">Retour</button>
+    <button data-page-act="forward">Avant</button>
+    <button data-page-act="reload">Recharger</button>
+    <button data-page-act="share">Partager</button>
+    <button data-page-act="secret">${tab?.secret?"Retirer secret":"Onglet secret"}</button>
+    <button data-page-act="hide-secrets">${S.secretsHidden?"Afficher secrets":"Cacher secrets"}</button>
+    <button data-page-act="mask-url">${S.maskUrl?"Afficher URL":"Masquer URL"}</button>
+    <button data-page-act="external">Ouvrir navigateur</button>
+  </div>`;
 }
 
-function renderToast() {
-  if (!ui.toast) return "";
-  return `<div class="toast toast-${esc(ui.toast.type)}" data-close-toast>${esc(ui.toast.msg)}</div>`;
+function renderAppBarMenu(menu) {
+  if (menu?.kind !== "appbar") return "";
+  const app = activeApp();
+  const x = menu.x, y = menu.y;
+  return `<div class="context-menu appbar-menu" style="left:${x}px;top:${y}px">
+    <div class="context-label">App</div>
+    <button data-page-act="properties">Propriétés</button>
+    <button data-page-act="duplicate">Dupliquer</button>
+    <button data-page-act="notifications">${app?.notifications?"Couper notifs":"Activer notifs"}</button>
+    <button data-page-act="hidden">${app?.hidden?"Afficher":"Cacher"}</button>
+    <button data-page-act="clear-count">Reset compteur</button>
+    <button data-page-act="delete" class="danger-text">Supprimer</button>
+    <div class="context-label">Groupe</div>
+    <button data-page-act="ws-properties">Propriétés groupe</button>
+    <button data-page-act="ws-previous">Groupe précédent</button>
+    <button data-page-act="ws-next">Groupe suivant</button>
+  </div>`;
 }
+
 
 function renderAddModal() {
-  if (!document.getElementById("add-modal")?.classList.contains("open")) return "";
-  return `<div class="modal-backdrop open" id="add-modal">
+  return `<div class="modal-backdrop" id="add-modal">
     <form class="modal" data-add-form>
-      <div class="modal-header"><h2>Ajouter une app</h2><button type="button" class="modal-close" data-close-add>×</button></div>
-      <div class="field"><label>Nom<input name="appName" required /></label></div>
-      <div class="field"><label>URL<input name="appUrl" type="url" required /></label></div>
-      <div class="modal-actions"><button type="button" class="secondary" data-close-add>Annuler</button><button type="submit" class="primary">Ajouter</button></div>
+      <h2>Ajouter une app</h2>
+      <div class="field"><label>Nom<input name="name" placeholder="Ex: Perplexity" required /></label></div>
+      <div class="field"><label>URL<input name="url" placeholder="https://example.com" required /></label></div>
+      <div class="modal-actions">
+        <button type="button" class="secondary" data-close-add>Annuler</button>
+        <button type="submit" class="primary">Ajouter</button>
+      </div>
     </form>
   </div>`;
 }
@@ -646,42 +932,28 @@ function renderAddModal() {
 function renderPropertiesModal() {
   const app = ui.propertiesAppId ? findApp(ui.propertiesAppId) : null;
   if (!app) return "";
-  const isClone = Boolean(app.partitionKey && app.partitionKey !== app.id);
+  const icon = app.iconImage || favicon(app.url);
   return `<div class="modal-backdrop open" id="properties-modal">
-    <form class="modal props-modal" data-props-form data-app-id="${esc(app.id)}">
-      <div class="props-header">
-        <span class="app-icon large" style="background:${esc(app.color)}">${esc(initials(app.name))}</span>
-        <div class="props-header-info">
-          <strong>${esc(app.name)}</strong>
-          <small>${esc(hostname(app.url))}</small>
-          ${isClone?`<span class="clone-info">⊕ Clone</span>`:""}
-          <code class="props-ref" onclick="this.select()">${esc(app.id)}</code>
-        </div>
-        <button type="button" class="props-close" data-close-props>×</button>
+    <form class="modal" data-props-form data-app-id="${esc(app.id)}">
+      <h2>Propriétés app</h2>
+      <div class="property-head">
+        <span class="app-icon large" style="background:${esc(app.color)}">${icon?`<img src="${esc(icon)}" alt="" />`:`${esc(initials(app.name))}`}</span>
+        <div><strong>${esc(app.name)}</strong><small>${esc(hostname(app.url))}</small>${app.partitionKey&&app.partitionKey!==app.id?`<small class="clone-info">Clone de ${esc(app.partitionKey)}</small>`:""}</div>
       </div>
-      <div class="props-section">
-        <div class="props-section-label">Essentiel</div>
-        <div class="field"><label>Nom<input name="name" value="${esc(app.name)}" required /></label></div>
-        <div class="field"><label>URL<input name="url" value="${esc(app.url)}" required /></label></div>
-      </div>
-      <div class="props-section">
-        <div class="props-section-label">Apparence</div>
-        <div class="props-color-row">
-          <label class="props-color-label">Couleur<input name="color" type="color" value="${esc(app.color)}" /></label>
-          <label class="props-color-label">Highlight<input name="highlightColor" type="color" value="${esc(app.highlightColor||"")}" /></label>
-        </div>
-      </div>
-      <div class="props-section">
-        <div class="props-section-label">Comportement</div>
-        <div class="props-checks">
-          <label class="check-row"><input type="checkbox" name="notifications"${app.notifications?" checked":""}> Notifications</label>
-          <label class="check-row"><input type="checkbox" name="cachable"${app.cachable?" checked":""}> Cachable</label>
-          <label class="check-row"><input type="checkbox" name="hidden"${app.hidden?" checked":""}> Cachée</label>
-          <label class="check-row"><input type="checkbox" name="secret"${app.secret?" checked":""}> Secret</label>
-          <label class="check-row"><input type="checkbox" name="maskUrl"${app.maskUrl?" checked":""}> Masquer URL</label>
-          <label class="check-row"><input type="checkbox" name="splittable"${app.splittable!==false?" checked":""}> Splittable</label>
-        </div>
-      </div>
+      <div class="field prop-ref"><label>Référence<input readonly value="${esc(app.id)}" onclick="this.select()" title="Identifiant unique de l'app" /></label></div>
+      <div class="field"><label>Nom<input name="name" value="${esc(app.name)}" required /></label></div>
+      <div class="field"><label>URL<input name="url" value="${esc(app.url)}" required /></label></div>
+      <div class="field"><label>Couleur icône<input name="color" type="color" value="${esc(app.color)}" /></label></div>
+      <div class="field"><label>Highlight<input name="highlightColor" type="color" value="${esc(app.highlightColor||"#ffffff")}" /></label></div>
+      <div class="field"><label>Image icône URL<input name="iconImage" value="${esc(app.iconImage||"")}" placeholder="https://..." /></label></div>
+      <div class="field"><label>Uploader icône<input type="file" accept="image/*" data-upload-app-icon="${esc(app.id)}" /></label></div>
+      <div class="field"><label>Priorité<input name="priority" type="number" value="${Number(app.priority||0)}" /></label></div>
+      <div class="field"><label>Compteur notifs<input name="notificationCount" type="number" min="0" value="${Number(app.notificationCount||0)}" /></label></div>
+      <label class="check-row"><input type="checkbox" name="notifications"${app.notifications?" checked":""}> Notifications</label>
+      <label class="check-row"><input type="checkbox" name="cachable"${app.cachable?" checked":""}> App cachable</label>
+      <label class="check-row"><input type="checkbox" name="hidden"${app.hidden?" checked":""}> App cachée</label>
+      <label class="check-row"><input type="checkbox" name="secret"${app.secret?" checked":""}> Mode secret par défaut</label>
+      <label class="check-row"><input type="checkbox" name="maskUrl"${app.maskUrl?" checked":""}> Masquer l'URL</label>
       <div class="modal-actions split">
         <button type="button" class="danger" data-delete-app="${esc(app.id)}">Supprimer</button>
         <span></span>
@@ -697,115 +969,550 @@ function renderWorkspaceModal() {
   if (!ws) return "";
   return `<div class="modal-backdrop open" id="workspace-modal">
     <form class="modal" data-ws-form data-ws-id="${esc(ws.id)}">
-      <div class="modal-header"><h2>Propriétés du groupe</h2><button type="button" class="modal-close" data-close-ws>×</button></div>
+      <h2>Propriétés groupe</h2>
+      <div class="property-head">
+        <span class="workspace-button active preview" style="background:${esc(ws.color)}">${ws.iconImage?`<img src="${esc(ws.iconImage)}" alt="" />`:`${esc(ws.icon)}`}</span>
+        <div><strong>${esc(ws.name)}</strong><small>Raccourci Cmd/Ctrl+1..9</small></div>
+      </div>
       <div class="field"><label>Nom<input name="name" value="${esc(ws.name)}" required /></label></div>
-      <div class="field"><label>Icône<input name="icon" value="${esc(ws.icon||"")}" maxlength="2" /></label></div>
+      <div class="field"><label>Icône texte<input name="icon" value="${esc(ws.icon)}" maxlength="2" required /></label></div>
+      <div class="field"><label>Icône image URL<input name="iconImage" value="${esc(ws.iconImage||"")}" placeholder="https://..." /></label></div>
+      <div class="field"><label>Uploader icône<input type="file" accept="image/*" data-upload-ws-icon="${esc(ws.id)}" /></label></div>
       <div class="field"><label>Couleur<input name="color" type="color" value="${esc(ws.color)}" /></label></div>
-      <div class="modal-actions"><button type="button" class="secondary" data-close-ws>Annuler</button><button type="submit" class="primary">Enregistrer</button></div>
+      <div class="field"><label>Highlight<input name="highlightColor" type="color" value="${esc(ws.highlightColor||"#ffffff")}" /></label></div>
+      <div class="field"><label>Priorité<input name="priority" type="number" value="${Number(ws.priority||0)}" /></label></div>
+      <label class="check-row"><input type="checkbox" name="collapsed"${ws.collapsed?" checked":""}> Groupe replié par défaut</label>
+      <div class="modal-actions">
+        <button type="button" class="secondary" data-close-ws-modal>Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
     </form>
   </div>`;
 }
 
-function renderShareModal() { return ""; }
-function renderSettings() { return ""; }
-function renderContextMenu(menu) { return ""; }
-function renderTabMenu(menu) { return ""; }
-function renderWorkspaceMenu(menu) { return ""; }
-function renderPageMenu(menu) { return ""; }
-function renderAppBarMenu(menu) { return ""; }
+function renderShareModal() {
+  if (!ui.shareDraft) return "";
+  return `<div class="modal-backdrop open" id="share-modal">
+    <div class="modal">
+      <h2>Partager</h2>
+      <div class="share-preview">${esc(shareText())}</div>
+      <div class="modal-actions share-actions">
+        <button class="secondary" data-share-to="copy">Copier</button>
+        <button class="secondary" data-share-to="x">X</button>
+        <button class="secondary" data-share-to="linkedin">LinkedIn</button>
+        <button class="secondary" data-share-to="buffer">Buffer</button>
+        <button class="primary" data-share-to="mail">Mail</button>
+      </div>
+      <div class="modal-actions"><button class="secondary" data-close-share>Fermer</button></div>
+    </div>
+  </div>`;
+}
 
-document.addEventListener("click", (e) => {
+function renderSettings() {
+  if (!S.settingsOpen) return "";
+  const sections = [["general","⌘","Général"],["downloads","⇩","Téléchargements"],["notifications","♢","Notifications"],["shortcuts","⌨","Raccourcis"],["permissions","◇","Micro/caméra"],["fonts","T","Polices"],["sync","↻","Sync"],["extensions","✜","Extensions"],["import","⇳","Importer/Exporter"],["advanced","⌁","Avancé"]];
+  return `<div class="settings-panel">
+    <aside class="settings-nav">
+      <h2>Paramètres</h2>
+      ${sections.map(([id,ico,label])=>`<button class="${S.settingsSection===id?"active":""}" data-settings-nav="${id}"><span>${ico}</span>${label}</button>`).join("")}
+    </aside>
+    <section class="settings-body">
+      <button class="settings-close" data-close-settings>×</button>
+      ${renderSettingsBody()}
+    </section>
+  </div>`;
+}
+
+function renderSettingsBody() {
+  const sw = (key) => `<button class="switch${S[key]?" on":""}" data-toggle="${esc(key)}"><span></span></button>`;
+  if (S.settingsSection === "general") return `
+    <div class="settings-card"><div><h3>Masquer l'URL</h3><p>Affiche seulement le domaine.</p></div>${sw("maskUrl")}</div>
+    <div class="settings-card"><div><h3>Mode interface</h3><p>A compact, B normal, C large.</p></div>
+      <div class="segmented settings-segmented">${["compact","normal","large"].map(d=>`<button class="${S.density===d?"active":""}" data-density="${d}">${{compact:"A",normal:"B",large:"C"}[d]}</button>`).join("")}</div></div>
+    <div class="settings-card"><div><h3>Apps cachées</h3><p>Affiche temporairement les apps cachées.</p></div>${sw("showHiddenApps")}</div>
+    <div class="settings-card"><div><h3>Masquer apps cachables</h3><p>Cache les apps marquées cachables.</p></div>${sw("hideCachableApps")}</div>
+    <div class="settings-card"><div><h3>Colonne compacte</h3><p>Icônes seules dans la sidebar.</p></div>${sw("sidebarCollapsed")}</div>
+    <div class="settings-card column"><h3>Taille des icônes</h3>
+      <div class="range-grid">
+        <label><span>Groupes <strong>${S.groupIconSize}px</strong></span><input type="range" min="14" max="72" value="${S.groupIconSize}" data-icon-size="group" /></label>
+        <label><span>Apps <strong>${S.appIconSize}px</strong></span><input type="range" min="12" max="58" value="${S.appIconSize}" data-icon-size="app" /></label>
+      </div>
+    </div>`;
+  if (S.settingsSection === "extensions") return `
+    <div class="settings-card"><div><h3>Bloqueur de publicités</h3><p>Filtre les publicités courantes.</p></div>${sw("adBlockEnabled")}</div>
+    <div class="settings-card column">
+      <div class="settings-card-head"><div><h3>Extensions Chrome</h3><p>Charge des extensions unpacked Chromium.</p></div><button class="primary" data-add-ext>Ajouter un dossier</button></div>
+      <div class="extension-list">${S.chromeExtensions.length?S.chromeExtensions.map(renderExtRow).join(""):`<div class="empty-settings">Aucune extension chargée.</div>`}</div>
+    </div>`;
+  if (S.settingsSection === "downloads") return `
+    <div class="settings-card"><div><h3>Demander où enregistrer</h3></div>${sw("askDownloadLocation")}</div>
+    <div class="settings-card column"><h3>Dossier par défaut</h3><input class="settings-input" data-text-setting="downloadsPath" value="${esc(S.downloadsPath)}" placeholder="~/Downloads" /></div>`;
+  if (S.settingsSection === "notifications") return `
+    <div class="settings-card"><div><h3>Notifications globales</h3></div>${sw("globalNotifications")}</div>
+    <div class="settings-card"><div><h3>Badges sur les apps</h3></div>${sw("notificationBadges")}</div>
+    <div class="settings-card"><div><h3>Son de notification</h3></div>${sw("notificationSound")}</div>`;
+  if (S.settingsSection === "shortcuts") return `
+    <div class="settings-card"><div><h3>Raccourcis clavier</h3><p>Cmd/Ctrl+1..9, Alt+flèches.</p></div>${sw("shortcutsEnabled")}</div>
+    <div class="settings-card"><div><h3>Aide compacte</h3></div>${sw("compactShortcuts")}</div>`;
+  if (S.settingsSection === "permissions") return `
+    <div class="settings-card column"><h3>Autorisations</h3>
+      <div class="settings-select-grid">${["cameraPermission","microphonePermission","locationPermission"].map((k,i)=>{
+        const labels=["Caméra","Micro","Localisation"];
+        return `<label><span>${labels[i]}</span><select data-perm="${esc(k)}">${["ask","allow","block"].map(v=>`<option value="${v}"${S[k]===v?" selected":""}>${{ask:"Demander",allow:"Autoriser",block:"Bloquer"}[v]}</option>`).join("")}</select></label>`;
+      }).join("")}</div></div>`;
+  if (S.settingsSection === "fonts") return `
+    <div class="settings-card column"><h3>Police de l'interface</h3>
+      <div class="settings-select-grid">
+        <label><span>Famille</span><select data-font-family>
+          ${[["system","Système (défaut)"],["sans","Sans-serif"],["serif","Serif"],["mono","Monospace"]].map(([v,l])=>`<option value="${v}"${S.uiFont===v?" selected":""}>${l}</option>`).join("")}
+        </select></label>
+      </div>
+    </div>
+    <div class="settings-card column"><h3>Taille du texte</h3>
+      <div class="range-grid"><label><span>Interface <strong>${S.fontScale}%</strong></span><input type="range" min="80" max="130" step="5" value="${S.fontScale}" data-range-setting="fontScale" /></label></div>
+    </div>`;
+  if (S.settingsSection === "sync") return `
+    <div class="settings-card"><div><h3>Sync locale</h3></div>${sw("syncEnabled")}</div>`;
+  if (S.settingsSection === "import") return `
+    <div class="settings-card column"><h3>Importer / Exporter</h3><div class="settings-actions">
+      <button class="primary" data-export>Exporter JSON</button>
+      <button class="secondary" data-import>Importer JSON</button>
+      <input type="file" id="import-file" accept="application/json" hidden />
+    </div></div>`;
+  if (S.settingsSection === "advanced") return `
+    <form class="settings-card column" data-skin-form>
+      <h3>Skin personnalisé</h3>
+      <div class="color-grid">
+        <label>Fond<input type="color" name="cream" value="${esc(S.customSkin.cream)}" /></label>
+        <label>Sidebar<input type="color" name="sidebar" value="${esc(S.customSkin.sidebar)}" /></label>
+        <label>Accent<input type="color" name="accent" value="${esc(S.customSkin.accent)}" /></label>
+      </div>
+      <div class="field"><label>Skin<select data-skin-select>
+        ${["biscuit","dark","mono","custom"].map(v=>`<option value="${v}"${S.skin===v?" selected":""}>${v.charAt(0).toUpperCase()+v.slice(1)}</option>`).join("")}
+      </select></label></div>
+      <button class="primary" type="submit">Appliquer</button>
+    </form>`;
+  return `<div class="settings-card"><h3>Paramètres</h3></div>`;
+}
+
+function renderExtRow(e) {
+  const s={loaded:"chargée",pending:"en attente",disabled:"désactivée",error:"erreur"}[e.status]||e.status;
+  return `<div class="extension-row">
+    <div class="extension-main"><strong>${esc(e.name||"Extension")}</strong><small>${esc(e.path)}</small>${e.error?`<em>${esc(e.error)}</em>`:""}</div>
+    <span class="extension-status ${esc(e.status)}">${esc(s)}</span>
+    <button class="switch${e.enabled?" on":""}" data-toggle-ext="${esc(e.id)}"><span></span></button>
+    <button class="secondary" data-remove-ext="${esc(e.id)}">Retirer</button>
+  </div>`;
+}
+
+// ── WEBVIEW WIRING ────────────────────────────────────────────────────────────
+// Only webviews need post-render wiring — their events don't bubble through the DOM.
+
+let chromeExtRestored = false;
+
+function wireWebviews() {
+  document.querySelectorAll("webview").forEach(wv => {
+    if (wv.__wired) return;
+    wv.__wired = true;
+
+    wv.addEventListener("did-start-loading", () => { if (wv.classList.contains("active")) root.querySelector(".browser")?.classList.add("loading"); });
+    wv.addEventListener("did-stop-loading",  () => { if (wv.classList.contains("active")) root.querySelector(".browser")?.classList.remove("loading"); });
+    wv.addEventListener("did-navigate", () => syncWv(wv));
+    wv.addEventListener("did-navigate-in-page", () => syncWv(wv));
+    wv.addEventListener("page-title-updated", e => updateWvTitle(wv, e.title));
+    wv.addEventListener("did-finish-load", () => { hookNotifications(wv); applyAdBlock(wv); applyMute(wv); injectWebviewFont(wv); });
+    wv.addEventListener("console-message", e => {
+      if (String(e.message||"").startsWith("__CROKETTS_NOTIFICATION__"))
+        incrementNotification(wv.dataset.appId);
+    });
+    wv.addEventListener("new-window", e => { e.preventDefault(); window.crokETT?.openExternal?.(e.url); });
+
+    // Clic droit dans le webview — event Electron, ne remonte pas au document
+    wv.addEventListener("context-menu", e => {
+      // e.params.x/y = coords dans le referentiel du webview (CSS px)
+      // Fallback sur e.x/e.y si params absent (certaines versions Electron)
+      const px = e.params?.x ?? e.x ?? null;
+      const py = e.params?.y ?? e.y ?? null;
+      const rect = wv.getBoundingClientRect();
+      const menuX = px !== null ? rect.left + px : e.clientX ?? rect.left + rect.width / 2;
+      const menuY = py !== null ? rect.top  + py : e.clientY ?? rect.top  + rect.height / 2;
+      // Stocker la ref du webview pour que les actions ciblent le bon pane (split)
+      ui.menu = {
+        kind: "page",
+        x: Math.min(menuX, window.innerWidth  - 220),
+        y: Math.min(menuY, window.innerHeight - 420),
+        wv
+      };
+      render();
+    });
+  });
+
+  if (!chromeExtRestored) {
+    chromeExtRestored = true;
+    (async () => {
+      for (const e of S.chromeExtensions.filter(e => e.enabled)) {
+        try { Object.assign(e, await window.crokETT.loadChromeExtension(e.path)); }
+        catch(err) { e.status = "error"; e.error = err?.message || String(err); }
+      }
+      save();
+    })();
+  }
+}
+
+function syncWv(wv) {
+  const url = wv.getURL?.() || ""; if (!url) return;
+  const tab = findTabById(wv.dataset.tabId); if (!tab) return;
+  if (tab.url !== url) { tab.url = url; }
+  const input = document.querySelector(".address-form input");
+  if (input && wv.classList.contains("active")) {
+    const app = activeApp();
+    input.value = (S.maskUrl || app?.maskUrl) ? hostname(url) : url;
+  }
+}
+function updateWvTitle(wv, title) {
+  const tab = findTabById(wv.dataset.tabId); if (!tab || tab.pinned) return;
+  const clean = String(title||"").replace(/^\(\d+\)\s*/,"");
+  if (tab.title !== clean) { tab.title = clean; save(); render(); }
+}
+function applyMute(wv) {
+  if (typeof wv.setAudioMuted === "function") wv.setAudioMuted(wv.dataset.muted === "true");
+}
+
+// ── EVENT DELEGATION ──────────────────────────────────────────────────────────
+// One listener per event type, all routing done by data attributes.
+
+document.addEventListener("click", onClick);
+document.addEventListener("contextmenu", onContextMenu, true); // capture = avant que webview intercepte
+document.addEventListener("pointerdown", onPointerDown);       // fallback clic droit
+document.addEventListener("change", onChange);
+document.addEventListener("submit", onSubmit);
+document.addEventListener("input", onInput);
+document.addEventListener("keydown", onKeyDown);
+document.addEventListener("dragstart", onDragStart);
+document.addEventListener("dragover", onDragOver);
+document.addEventListener("drop", onDrop);
+
+function onClick(e) {
   const t = e.target;
-  if (t.closest("[data-close-add]")) { document.getElementById("add-modal")?.classList.remove("open"); return; }
-  if (t.closest("[data-close-props]")) { ui.propertiesAppId = null; render(); return; }
-  if (t.closest("[data-close-ws]")) { ui.propertiesWorkspaceId = null; render(); return; }
+
+  // ── Tab inner buttons (closest finds deepest match first) ────────────────
+  const closeTab = t.closest("[data-close-tab]");
+  if (closeTab) { doCloseTab(closeTab.dataset.closeTab); return; }
+
+  const tabMenuBtn = t.closest("[data-tab-menu]");
+  if (tabMenuBtn) {
+    const tabId = tabMenuBtn.dataset.tabMenu;
+    const rect = tabMenuBtn.getBoundingClientRect();
+    ui.activeTabId = tabId;
+    ui.menu = { kind:"tab", tabId, x: Math.min(rect.left, window.innerWidth - 440), y: rect.bottom + 6 };
+    render(); return;
+  }
+
+  const tabBtn = t.closest("[data-tab]");
+  if (tabBtn) { selectTab(tabBtn.dataset.tab); return; }
+
+  // ── Toast dismiss ────────────────────────────────────────────────────────
   if (t.closest("[data-close-toast]")) { ui.toast = null; render(); return; }
-  if (t.closest("[data-toggle]")) { const btn = t.closest("[data-toggle]"); S[btn.dataset.toggle] = !S[btn.dataset.toggle]; commit(); return; }
-  if (t.closest("[data-nav]")) { const nav = t.closest("[data-nav]").dataset.nav; const wv = document.querySelector("webview.active"); if (wv) { if (nav === "back") wv.goBack(); else if (nav === "forward") wv.goForward(); else if (nav === "reload") wv.reload(); } return; }
-  if (t.closest("[data-new-tab]")) { addTab(activeApp()?.id); return; }
-  if (t.closest("[data-open-add]")) { document.getElementById("add-modal")?.classList.add("open"); return; }
-  if (t.closest("[data-tab]")) { const tabId = t.closest("[data-tab]").dataset.tab; ui.activeTabId = tabId; commit(); return; }
-  if (t.closest("[data-ws]")) {
-    const id = t.closest("[data-ws]").dataset.ws;
-    if (id === S.activeWorkspaceId) {
-      toggleWorkspaceCollapsed(id);
-    } else {
-      const ws = findWorkspace(id);
-      if (ws?.collapsed) { ws.collapsed = false; save(); }
-      selectWorkspace(id);
-    }
+
+  // ── Context menus ────────────────────────────────────────────────────────
+  if (t.closest(".context-menu")) {
+    // actions handled below; if no action found, keep menu open
+  } else if (ui.menu) {
+    ui.menu = null; render(); return;
+  }
+
+  // ── Tab menu actions ─────────────────────────────────────────────────────
+  const tabAct = t.closest("[data-tab-act]");
+  if (tabAct && ui.menu?.kind === "tab") {
+    const act = tabAct.dataset.tabAct;
+    const tab = findTabById(ui.menu.tabId);
+    const app = activeApp();
+    ui.menu = null;
+    if (act === "new-tab")      createTab(tab?.url);
+    if (act === "close")        doCloseTab(tab?.id);
+    if (act === "close-others") closeOtherTabs(tab?.id);
+    if (act === "close-right")  closeTabsToRight(tab?.id);
+    if (act === "open-browser") window.crokETT?.openExternal?.(tab?.url);
+    if (act === "open-window")  window.crokETT?.openNewWindow?.(tab?.url);
+    if (act === "split-right")  { S.splitOrientation="horizontal"; if (app) splitAppToPane(app.id,"right"); else render(); }
+    if (act === "split-bottom") { S.splitOrientation="vertical";   if (app) splitAppToPane(app.id,"right"); else render(); }
+    if (act === "mute")         toggleTabMuted(tab?.id);
+    if (act === "pin")          toggleTabPinned(tab?.id);
+    if (act === "rename")       renamePinnedTab(tab?.id);
+    if (act === "open-app")     createTabInApp(tabAct.dataset.appId, tab?.url);
     return;
   }
-  if (t.closest("[data-toggle-ws]")) { toggleWorkspaceCollapsed(t.closest("[data-toggle-ws]").dataset.toggleWs); return; }
-  if (t.closest("[data-ws-app]")) {
-    const [wid, aid] = t.closest("[data-ws-app]").dataset.wsApp.split(":");
+
+  // ── App context menu actions ─────────────────────────────────────────────
+  const ctxAct = t.closest("[data-ctx]");
+  if (ctxAct && ui.menu?.kind === "app") {
+    const act = ctxAct.dataset.ctx;
+    const appId = ui.menu.appId;
+    ui.menu = null;
+    if (act === "open")           selectApp(appId);
+    if (act === "new-tab")        { selectApp(appId); createTab(); }
+    if (act === "secret-tab")     { selectApp(appId); createTab(null, true); }
+    if (act === "split-left")     splitAppToPane(appId, "left");
+    if (act === "split-right")    splitAppToPane(appId, "right");
+    if (act === "properties")     { ui.propertiesAppId = appId; render(); }
+    if (act === "duplicate")      duplicateApp(appId);
+    if (act === "notifications")  { const a=findApp(appId); if(a){a.notifications=!a.notifications;commit();} }
+    if (act === "hidden")         toggleAppHidden(appId);
+    if (act === "clear-count")    { const a=findApp(appId); if(a){a.notificationCount=0;commit();} }
+    if (act === "delete")         deleteApp(appId);
+    return;
+  }
+
+  // ── Workspace menu actions ───────────────────────────────────────────────
+  const wsAct = t.closest("[data-ws-act]");
+  if (wsAct && ui.menu?.kind === "workspace") {
+    const act = wsAct.dataset.wsAct;
+    const wid = ui.menu.workspaceId;
+    ui.menu = null;
+    if (act === "properties") { ui.propertiesWorkspaceId = wid; render(); }
+    if (act === "previous")   { const i=S.workspaces.findIndex(w=>w.id===S.activeWorkspaceId); selectWorkspace(S.workspaces[(i-1+S.workspaces.length)%S.workspaces.length].id); }
+    if (act === "next")       { const i=S.workspaces.findIndex(w=>w.id===S.activeWorkspaceId); selectWorkspace(S.workspaces[(i+1)%S.workspaces.length].id); }
+    return;
+  }
+
+  // ── Page menu actions ────────────────────────────────────────────────────
+  const pageAct = t.closest("[data-page-act]");
+  if (pageAct) {
+    const act = pageAct.dataset.pageAct;
+    // En split, cibler le webview qui a déclenché le menu (stocké dans ui.menu.wv)
+    const wv = ui.menu?.wv || document.querySelector("webview.active");
+    const app = activeApp();
+    ui.menu = null;
+    if (act === "back")         wv?.goBack?.();
+    if (act === "forward")      wv?.goForward?.();
+    if (act === "reload")       wv?.reload?.();
+    if (act === "share")        openShare();
+    if (act === "secret")       toggleActiveTabSecret();
+    if (act === "hide-secrets") toggleSecretsHidden();
+    if (act === "mask-url")     { S.maskUrl = !S.maskUrl; commit(); }
+    if (act === "external")     window.crokETT?.openExternal?.(activeTab()?.url);
+    if (act === "properties")   { ui.propertiesAppId = app?.id; render(); }
+    if (act === "duplicate")    app && duplicateApp(app.id);
+    if (act === "notifications"){ if(app){app.notifications=!app.notifications;commit();} }
+    if (act === "hidden")       app && toggleAppHidden(app.id);
+    if (act === "clear-count")  { if(app){app.notificationCount=0;commit();} }
+    if (act === "delete")       app && deleteApp(app.id);
+    if (act === "ws-properties"){ ui.propertiesWorkspaceId = activeWorkspace()?.id; render(); }
+    if (act === "ws-previous")  { const ws=S.workspaces; const i=ws.findIndex(w=>w.id===S.activeWorkspaceId); selectWorkspace(ws[(i-1+ws.length)%ws.length].id); }
+    if (act === "ws-next")      { const ws=S.workspaces; const i=ws.findIndex(w=>w.id===S.activeWorkspaceId); selectWorkspace(ws[(i+1)%ws.length].id); }
+    if (!["share","secret","hide-secrets","mask-url","external","properties","duplicate","notifications","hidden","clear-count","delete","ws-properties","ws-previous","ws-next"].includes(act)) render();
+    return;
+  }
+
+  // ── Nav buttons ──────────────────────────────────────────────────────────
+  const navBtn = t.closest("[data-nav]");
+  if (navBtn) {
+    const wv = document.querySelector("webview.active");
+    if (navBtn.dataset.nav === "back")    wv?.goBack?.();
+    if (navBtn.dataset.nav === "forward") wv?.goForward?.();
+    if (navBtn.dataset.nav === "reload")  wv?.reload?.();
+    return;
+  }
+
+  // ── Toolbar buttons ──────────────────────────────────────────────────────
+  if (t.closest("[data-new-tab]"))    { createTab(); return; }
+  if (t.closest("[data-share]"))      { openShare(); return; }
+  if (t.closest("[data-split-toggle]")){ toggleSplitView(); return; }
+  if (t.closest("[data-external]")) {
+    window.crokETT?.openExternal?.(activeTab()?.url); return;
+  }
+  if (t.closest("[data-page-menu-btn]")) {
+    if (ui.menu?.kind === "page") { ui.menu = null; render(); return; }
+    const btn = t.closest("[data-page-menu-btn]");
+    const rect = btn.getBoundingClientRect();
+    ui.menu = { kind:"page", x: Math.max(8, Math.min(rect.left - 180, window.innerWidth - 300)), y: rect.bottom + 8 };
+    render(); return;
+  }
+  if (t.closest("[data-appbar-menu-btn]")) {
+    if (ui.menu?.kind === "appbar") { ui.menu = null; render(); return; }
+    const btn = t.closest("[data-appbar-menu-btn]");
+    const rect = btn.getBoundingClientRect();
+    ui.menu = { kind:"appbar", x: Math.max(8, Math.min(rect.left - 160, window.innerWidth - 280)), y: rect.bottom + 8 };
+    render(); return;
+  }
+
+  // ── Sidebar ──────────────────────────────────────────────────────────────
+  const wsBtn = t.closest("[data-ws]");
+  if (wsBtn) { selectWorkspace(wsBtn.dataset.ws); return; }
+  const toggleWs = t.closest("[data-toggle-ws]");
+  if (toggleWs) { toggleWorkspaceCollapsed(toggleWs.dataset.toggleWs); return; }
+  const appBtn = t.closest("[data-ws-app]");
+  if (appBtn) {
+    const [wid, aid] = appBtn.dataset.wsApp.split(":");
     selectApp(aid, wid); return;
   }
-  if (t.closest("[data-split-toggle]")) { toggleSplitView(); return; }
-  if (t.closest("[data-add-ws]")) { addWorkspace(); return; }
-  if (t.closest("[data-open-settings]")) { S.settingsOpen = !S.settingsOpen; commit(); return; }
-  if (t.closest("[data-delete-app]")) {
-    const appId = t.closest("[data-delete-app]").dataset.deleteApp;
-    deleteApp(appId); return;
-  }
-});
+  if (t.closest("[data-add-ws]"))      { addWorkspace(); return; }
+  if (t.closest("[data-toggle-cachable]")) { S.hideCachableApps=!S.hideCachableApps; commit(); return; }
+  if (t.closest("[data-open-add]"))    { document.getElementById("add-modal")?.classList.add("open"); return; }
 
-document.addEventListener("submit", (e) => {
-  if (e.target.dataset.addForm) {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    addApp(fd.get("appName"), fd.get("appUrl"));
-    e.target.reset();
-    document.getElementById("add-modal")?.classList.remove("open");
-    return;
-  }
-  if (e.target.dataset.propsForm) {
-    e.preventDefault();
-    updateAppProperties(e.target.dataset.appId, new FormData(e.target));
-    return;
-  }
-  if (e.target.dataset.wsForm) {
-    e.preventDefault();
-    updateWorkspaceProperties(e.target.dataset.wsId, new FormData(e.target));
-    return;
-  }
-});
+  // ── Modals ────────────────────────────────────────────────────────────────
+  if (t.closest("[data-close-add]"))   { document.getElementById("add-modal")?.classList.remove("open"); return; }
+  if (t.closest("[data-close-props]")) { ui.propertiesAppId = null; render(); return; }
+  if (t.closest("[data-close-ws-modal]")) { ui.propertiesWorkspaceId = null; render(); return; }
+  if (t.closest("[data-close-share]")) { ui.shareDraft = null; render(); return; }
+  const shareBtn = t.closest("[data-share-to]");
+  if (shareBtn) { shareTo(shareBtn.dataset.shareTo); return; }
+  const deleteApp_ = t.closest("[data-delete-app]");
+  if (deleteApp_) { deleteApp(deleteApp_.dataset.deleteApp); return; }
 
-document.addEventListener("change", (e) => {
-  const sel = e.target.closest("select[data-split-select]");
-  if (sel) {
-    const side = sel.dataset.splitSelect;
-    setSplitPaneApp(side, sel.value);
-    return;
-  }
-});
+  // ── Settings ─────────────────────────────────────────────────────────────
+  const openSet = t.closest("[data-open-settings]");
+  if (openSet) { S.settingsOpen=true; S.settingsSection=openSet.dataset.openSettings||"general"; commit(); return; }
+  if (t.closest("[data-close-settings]")) { S.settingsOpen=false; commit(); return; }
+  const navSet = t.closest("[data-settings-nav]");
+  if (navSet) { S.settingsSection=navSet.dataset.settingsNav; render(); return; }
+  const density = t.closest("[data-density]");
+  if (density) { S.density=density.dataset.density; commit(); return; }
+  const togBtn = t.closest("[data-toggle]");
+  if (togBtn) { S[togBtn.dataset.toggle]=!S[togBtn.dataset.toggle]; syncNative(); commit(); return; }
+  if (t.closest("[data-export]"))  { exportConfig(); return; }
+  if (t.closest("[data-import]"))  { document.getElementById("import-file")?.click(); return; }
+  if (t.closest("[data-add-ext]")) { loadChromeExtension(); return; }
+  const rmExt = t.closest("[data-remove-ext]");
+  if (rmExt) { removeChromeExtension(rmExt.dataset.removeExt); return; }
+  const togExt = t.closest("[data-toggle-ext]");
+  if (togExt) { const e=S.chromeExtensions.find(e=>e.id===togExt.dataset.toggleExt); if(e) setChromeExtEnabled(e.id,!e.enabled); return; }
+}
 
-document.addEventListener("dragstart", (e) => {
+function onContextMenu(e) {
+  // App button right-click
+  const appBtn = e.target.closest("[data-ws-app]");
+  if (appBtn) {
+    e.preventDefault();
+    const [wid, aid] = appBtn.dataset.wsApp.split(":");
+    S.activeWorkspaceId = wid; S.activeAppByWorkspace[wid] = aid;
+    ui.menu = { kind:"app", appId: aid, x: e.clientX, y: e.clientY };
+    save(); render(); return;
+  }
+  // Workspace right-click
+  const wsBtn = e.target.closest("[data-ws]");
+  if (wsBtn) {
+    e.preventDefault();
+    ui.menu = { kind:"workspace", workspaceId: wsBtn.dataset.ws, x: e.clientX, y: e.clientY };
+    render(); return;
+  }
+  // Tab right-click
+  const tabBtn = e.target.closest("[data-tab]");
+  if (tabBtn) {
+    e.preventDefault();
+    ui.activeTabId = tabBtn.dataset.tab;
+    ui.menu = { kind:"tab", tabId: tabBtn.dataset.tab, x: e.clientX, y: e.clientY };
+    render(); return;
+  }
+}
+
+function onChange(e) {
+  const t = e.target;
+  const splitSel = t.closest("[data-split-select]");
+  if (splitSel) { setSplitPaneApp(splitSel.dataset.splitSelect, t.value); return; }
+  const perm = t.closest("[data-perm]");
+  if (perm) { S[perm.dataset.perm] = normPerm(t.value); syncNative(); commit(); return; }
+  const skinSel = t.closest("[data-skin-select]");
+  if (skinSel) { S.skin = t.value; commit(); return; }
+  const fontFamSel = t.closest("[data-font-family]");
+  if (fontFamSel) { S.uiFont = ["system","sans","serif","mono"].includes(t.value) ? t.value : "system"; commit(); return; }
+  if (t.id === "import-file") { importConfig(t.files?.[0]); return; }
+}
+
+function onSubmit(e) {
+  e.preventDefault();
+  const t = e.target;
+  if (t.closest("[data-add-form]"))  { addCustomApp(Object.fromEntries(new FormData(t))); document.getElementById("add-modal")?.classList.remove("open"); return; }
+  if (t.closest("[data-props-form]")){ updateAppProperties(t.dataset.appId, new FormData(t)); return; }
+  if (t.closest("[data-ws-form]"))   { updateWorkspaceProperties(t.dataset.wsId, new FormData(t)); return; }
+  if (t.closest("[data-url-form]"))  { updateActiveTabUrl(new FormData(t).get("url")); return; }
+  const splitUrl = t.closest("[data-split-url]");
+  if (splitUrl) { updateSplitPaneUrl(splitUrl.dataset.splitUrl, new FormData(t).get("url")); return; }
+  const skinForm = t.closest("[data-skin-form]");
+  if (skinForm) {
+    const fd = new FormData(t);
+    S.skin = "custom";
+    S.customSkin = { cream: String(fd.get("cream")||S.customSkin.cream), sidebar: String(fd.get("sidebar")||S.customSkin.sidebar), accent: String(fd.get("accent")||S.customSkin.accent) };
+    commit(); return;
+  }
+}
+
+function onInput(e) {
+  const t = e.target;
+  const iconSize = t.closest("[data-icon-size]");
+  if (iconSize) {
+    const kind = iconSize.dataset.iconSize;
+    if (kind === "group") S.groupIconSize = clamp(t.value, 14, 72, 22);
+    if (kind === "app")   S.appIconSize   = clamp(t.value, 12, 58, 17);
+    save(); applyChrome(); return;
+  }
+  const rangeSet = t.closest("[data-range-setting]");
+  if (rangeSet) { S[rangeSet.dataset.rangeSetting] = clamp(t.value, 80, 130, 100); save(); applyChrome(); return; }
+  const textSet = t.closest("[data-text-setting]");
+  if (textSet) { S[textSet.dataset.textSetting] = t.value; return; }
+}
+
+function onKeyDown(e) {
+  if (!S.shortcutsEnabled) return;
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod) {
+    const n = Number(e.key);
+    if (n >= 1 && n <= 9 && S.workspaces[n-1]) { e.preventDefault(); selectWorkspace(S.workspaces[n-1].id); return; }
+    if (e.key === "ArrowLeft"  && e.altKey) { e.preventDefault(); const i=S.workspaces.findIndex(w=>w.id===S.activeWorkspaceId); selectWorkspace(S.workspaces[(i-1+S.workspaces.length)%S.workspaces.length].id); return; }
+    if (e.key === "ArrowRight" && e.altKey) { e.preventDefault(); const i=S.workspaces.findIndex(w=>w.id===S.activeWorkspaceId); selectWorkspace(S.workspaces[(i+1)%S.workspaces.length].id); return; }
+    if (e.shiftKey && e.key === "H")        { toggleSecretsHidden(); return; }
+    if (e.key === "t")                      { e.preventDefault(); createTab(); return; }
+    if (e.key === "w")                      { e.preventDefault(); const t=activeTab(); if(t) doCloseTab(t.id); return; }
+  }
+}
+
+function onPointerDown(e) {
+  if (e.button !== 2) return; // bouton droit uniquement
+  const tabBtn = e.target.closest("[data-tab]");
+  if (tabBtn && !e.target.closest("[data-tab-menu],[data-close-tab]")) {
+    ui.activeTabId = tabBtn.dataset.tab;
+    ui.menu = { kind:"tab", tabId: tabBtn.dataset.tab, x: e.clientX, y: e.clientY };
+    render();
+  }
+  const appBtn = e.target.closest("[data-ws-app]");
+  if (appBtn) {
+    const [wid, aid] = appBtn.dataset.wsApp.split(":");
+    S.activeWorkspaceId = wid; S.activeAppByWorkspace[wid] = aid;
+    ui.menu = { kind:"app", appId: aid, x: e.clientX, y: e.clientY };
+    save(); render();
+  }
+  const wsBtn = e.target.closest("[data-ws]");
+  if (wsBtn) {
+    ui.menu = { kind:"workspace", workspaceId: wsBtn.dataset.ws, x: e.clientX, y: e.clientY };
+    render();
+  }
+}
+
+function onDragStart(e) {
+  const ws = e.target.closest("[data-ws]");
+  if (ws) { e.dataTransfer.setData("text/crokETT-workspace", ws.dataset.ws); return; }
   const app = e.target.closest("[data-ws-app]");
-  if (app) { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("app", app.dataset.wsApp); return; }
-});
+  if (app) { const [,aid]=app.dataset.wsApp.split(":"); e.dataTransfer.setData("text/crokETT-app", aid); return; }
+}
 
-document.addEventListener("dragover", (e) => {
-  if (e.dataTransfer.types.includes("app")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }
-});
+function onDragOver(e) {
+  if (e.target.closest("[data-ws], [data-ws-app], [data-ws-drop]")) e.preventDefault();
+}
 
-document.addEventListener("drop", (e) => {
-  const appData = e.dataTransfer.getData("app");
-  if (appData) {
-    const [oldWid, aid] = appData.split(":");
-    const newWid = e.target.closest("[data-ws-drop]")?.dataset.wsDrop;
-    if (newWid && newWid !== oldWid) {
-      const app = findApp(aid);
-      if (app) {
-        const oldApps = S.appsByWorkspace[oldWid] || [];
-        S.appsByWorkspace[oldWid] = oldApps.filter(a => a.id !== aid);
-        const newApps = S.appsByWorkspace[newWid] || [];
-        newApps.push(app);
-        S.appsByWorkspace[newWid] = newApps;
-        commit();
-      }
-    }
-  }
-});
+function onDrop(e) {
+  const wsId = e.dataTransfer.getData("text/crokETT-workspace");
+  const appId = e.dataTransfer.getData("text/crokETT-app");
+  e.preventDefault();
 
+  const wsTgt = e.target.closest("[data-ws]");
+  if (wsId && wsTgt) { moveWorkspace(wsId, wsTgt.dataset.ws); return; }
+
+  const appTgt = e.target.closest("[data-ws-app]");
+  if (appId && appTgt) { moveApp(appId, appTgt.dataset.wsApp.split(":")[1]); return; }
+
+  const dropZone = e.target.closest("[data-ws-drop]");
+  if (appId && dropZone) { moveAppToWorkspace(appId, dropZone.dataset.wsDrop); return; }
+}
+
+// ── BOOT ──────────────────────────────────────────────────────────────────────
 render();

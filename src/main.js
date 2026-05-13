@@ -12,6 +12,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Avoid macOS Keychain prompts for Chromium cookie/password storage.
 app.commandLine.appendSwitch("password-store", "basic");
 app.commandLine.appendSwitch("use-mock-keychain");
 
@@ -37,7 +38,7 @@ function windowOptions(overrides = {}) {
     title: "CrokETT",
     backgroundColor: "#f6f4ee",
     titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
-    trafficLightPosition: { x: 18, y: 18 },
+    trafficLightPosition: { x: 18, y: 20 },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
