@@ -130,6 +130,7 @@ function migrate(raw) {
     s.appsByWorkspace[wid] = apps.map(a => ({
       notifications: true, notificationCount: 0, hidden: false, cachable: false,
       priority: 0, secret: false, maskUrl: false, iconImage: "", highlightColor: "", color: "#e16f43",
+      backgroundColor: "transparent",
       ...a
     }));
   });
@@ -419,7 +420,8 @@ function updateWorkspaceProperties(wid, fd) {
   ws.name = String(fd.get("name") || ws.name).trim();
   ws.icon = String(fd.get("icon") || ws.icon).trim().slice(0,2).toUpperCase();
   ws.iconImage = String(fd.get("iconImage") || "").trim();
-  ws.color = String(fd.get("color") || ws.color); ws.highlightColor = String(fd.get("highlightColor") || "");
+  ws.color = String(fd.get("color") || ws.color); 
+  ws.backgroundColor = String(fd.get("backgroundColor") || "transparent");
   ws.priority = Number(fd.get("priority") || 0); ws.shortcut = String(fd.get("shortcut") || "").trim();
   ws.collapsed = fd.get("collapsed") === "on";
   ui.propertiesWorkspaceId = null; commit();
@@ -491,6 +493,16 @@ function syncNative() {
   });
   window.crokETT?.setPreferences?.({ askDownloadLocation: S.askDownloadLocation, downloadsPath: S.downloadsPath });
 }
+function shareTo(target) {
+  if (!ui.shareDraft) return;
+  const text = shareText();
+  if (target === "copy") { window.crokETT.copyText(text); ui.shareDraft = null; render(); return; }
+  if (target === "x") window.crokETT.openExternal(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`);
+  if (target === "whatsapp") window.crokETT.openExternal(`https://wa.me/?text=${encodeURIComponent(text)}`);
+  if (target === "linkedin") window.crokETT.openExternal(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(ui.shareDraft.url)}`);
+  if (target === "mail") window.crokETT.openExternal(`mailto:?subject=${encodeURIComponent(ui.shareDraft.title)}&body=${encodeURIComponent(text)}`);
+}
+
 async function openShare() {
   const tab = activeTab(); if (!tab) return;
   ui.shareDraft = { text:"", title: tab.title, url: tab.url };
@@ -504,19 +516,6 @@ async function openShare() {
     ]);
     if (ui.shareDraft?.url === tab.url) { ui.shareDraft.text = String(sel || "").trim(); render(); }
   } catch { render(); }
-}
-function shareText() {
-  if (!ui.shareDraft) return "";
-  return `${ui.shareDraft.text ? ui.shareDraft.text + "\n\n" : ui.shareDraft.title + "\n"}${ui.shareDraft.url}`;
-}
-function shareTo(target) {
-  if (!ui.shareDraft) return;
-  const text = shareText();
-  if (target === "copy") { window.crokETT.copyText(text); ui.shareDraft = null; render(); return; }
-  if (target === "x") window.crokETT.openExternal(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`);
-  if (target === "linkedin") window.crokETT.openExternal(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(ui.shareDraft.url)}`);
-  if (target === "mail") window.crokETT.openExternal(`mailto:?subject=${encodeURIComponent(ui.shareDraft.title)}&body=${encodeURIComponent(text)}`);
-  if (target === "buffer") window.crokETT.openExternal(`https://buffer.com/add?text=${encodeURIComponent(text)}&url=${encodeURIComponent(ui.shareDraft.url)}`);
 }
 function showToast(msg, type = "info") {
   const at = Date.now();
@@ -663,37 +662,29 @@ function render() {
         const gApps = (S.appsByWorkspace[g.id] || []).filter(a => (S.showHiddenApps || !a.hidden) && (!S.hideCachableApps || !a.cachable));
         const col = Boolean(g.collapsed);
         const isActive = g.id === ws.id;
+        const bgStyle = g.backgroundColor && g.backgroundColor !== "transparent" ? `background-color:${esc(g.backgroundColor)}` : "";
         return `
-          <div class="unified-group" data-ws-drop="${esc(g.id)}">
+          <div class="unified-group" data-ws-drop="${esc(g.id)}" style="${bgStyle}">
             <div class="unified-group-row${isActive?" active":""}" data-ws="${esc(g.id)}">
               <span class="outliner-toggle">${col?"▸":"▾"}</span>
               <div class="unified-group-title">
                 ${g.iconImage?`<img src="${esc(g.iconImage)}" alt="" />`:`<span class="group-glyph">${esc(g.icon||"")}</span>`}
-                <span>${esc(g.name)}${gApps.length?` (${gApps.length})`:""}</span>
+                <span>${esc(g.name)}</span>
+                ${gApps.length?`<small style="color:var(--text-tertiary); font-weight:500; font-size:10px; margin-left:auto">${gApps.length}</small>`:""}
               </div>
               <button class="group-menu-btn" data-group-menu-btn="${esc(g.id)}">⋮</button>
             </div>
-            ${ui.groupMenuOpen === g.id ? `
-            <div class="group-color-menu">
-              <div class="color-grid" style="margin-bottom:8px">
-                ${colorFluo.map(c => `<button class="color-btn" data-bg-color="${esc(g.id)}:${esc(c)}" style="background: ${esc(c)};"></button>`).join("")}
-              </div>
-              <div class="color-grid" style="margin-bottom:8px">
-                ${colorPale.map(c => `<button class="color-btn" data-bg-color="${esc(g.id)}:${esc(c)}" style="background: ${esc(c)};"></button>`).join("")}
-              </div>
-              <button class="secondary" style="width:100%; font-size:10px; padding:4px" data-bg-color="${esc(g.id)}:transparent">✕ Réinitialiser la couleur</button>
-            </div>
-            ` : ""}
             <div class="app-list"${col?" hidden":""}>
               ${gApps.map(a => {
                 const icon = a.iconImage || favicon(a.url);
                 const isAppActive = isActive && app?.id === a.id;
                 const isClone = Boolean(a.partitionKey && a.partitionKey !== a.id);
+                const appBgStyle = a.backgroundColor && a.backgroundColor !== "transparent" ? `background-color:${esc(a.backgroundColor)}` : "";
                 return `
-                  <button class="app-button${isAppActive?" active":""}${a.hidden?" hidden-app":""}" draggable="true" data-ws-app="${esc(g.id)}:${esc(a.id)}">
+                  <button class="app-button${isAppActive?" active":""}${a.hidden?" hidden-app":""}" draggable="true" data-ws-app="${esc(g.id)}:${esc(a.id)}" style="${appBgStyle}">
                     <span class="app-icon" style="background:${esc(a.color)}">${icon?`<img src="${esc(icon)}" alt="" />`:`${esc(initials(a.name))}`}</span>
                     <span class="app-name">${esc(a.name)}</span>
-                    ${isClone?`<span class="clone-badge">⊕</span>`:""}
+                    ${isClone?`<span class="clone-badge" title="Clone">⊕</span>`:""}
                     ${badge(a)}
                   </button>`;
               }).join("")}
@@ -912,87 +903,71 @@ function renderContextMenu(menu) {
   if (menu?.kind !== "app") return "";
   const app = findApp(menu.appId); if (!app) return "";
   return `<div class="context-menu" style="left:${menu.x}px;top:${menu.y}px">
-    <button data-ctx="open">Ouvrir</button>
-    <button data-ctx="new-tab">Nouvel onglet</button>
-    <button data-ctx="secret-tab">Onglet secret</button>
-    <button data-ctx="split-left">Split gauche</button>
-    <button data-ctx="split-right">Split droite</button>
-    <button data-ctx="properties">Propriétés</button>
-    <button data-ctx="duplicate">Dupliquer</button>
-    <button data-ctx="notifications">${app.notifications?"Couper notifications":"Activer notifications"}</button>
-    <button data-ctx="hidden">${app.hidden?"Afficher":"Cacher"}</button>
-    <button data-ctx="clear-count">Reset compteur</button>
-    <button data-ctx="delete" class="danger-text">Supprimer</button>
+    <button data-ctx="open"><span>○</span> Ouvrir</button>
+    <button data-ctx="new-tab"><span>+</span> Nouvel onglet</button>
+    <button data-ctx="secret-tab"><span>◈</span> Onglet secret</button>
+    <hr/>
+    <button data-ctx="split-left"><span>◧</span> Split gauche</button>
+    <button data-ctx="split-right"><span>◨</span> Split droite</button>
+    <hr/>
+    <button data-ctx="properties"><span>⚙</span> Propriétés</button>
+    <button data-ctx="duplicate"><span>⧉</span> Dupliquer</button>
+    <button data-ctx="notifications"><span>▵</span> ${app.notifications?"Muet":"Notifs"}</button>
+    <button data-ctx="hidden"><span>ø</span> ${app.hidden?"Afficher":"Cacher"}</button>
+    <hr/>
+    <button data-ctx="delete" class="danger-text" style="color:var(--accent-warning)"><span>✕</span> Supprimer</button>
   </div>`;
 }
 
 function renderTabMenu(menu) {
   if (menu?.kind !== "tab") return "";
   const tab = findTabById(menu.tabId); if (!tab) return "";
-  const app = activeApp(), ws = activeWorkspace();
-  const otherGroups = S.workspaces.map(g => ({ g, apps:(S.appsByWorkspace[g.id]||[]).filter(a=>a.id!==app?.id) })).filter(g=>g.apps.length);
+  const app = activeApp();
   return `<div class="context-menu tab-menu" style="left:${menu.x}px;top:${menu.y}px">
-    <button data-tab-act="new-tab">Nouvel onglet</button>
+    <button data-tab-act="new-tab"><span>+</span> Nouvel onglet</button>
     <hr/>
-    <button data-tab-act="close">Fermer l'onglet</button>
-    <button data-tab-act="close-others">Fermer les autres</button>
-    <button data-tab-act="close-right">Fermer à droite</button>
+    <button data-tab-act="close"><span>✕</span> Fermer</button>
+    <button data-tab-act="close-others"><span>×</span> Autres</button>
     <hr/>
-    <button data-tab-act="open-browser">Ouvrir dans le navigateur</button>
-    <button data-tab-act="open-window">Nouvelle fenêtre</button>
+    <button data-tab-act="mute"><span>◉</span> ${tab.muted?"Sourdine off":"Muet"}</button>
+    <button data-tab-act="pin"><span>▲</span> ${tab.pinned?"Détacher":"Épingler"}</button>
     <hr/>
-    <button data-tab-act="split-right">Diviser à droite</button>
-    <button data-tab-act="split-bottom">Diviser en bas</button>
-    <hr/>
-    <button data-tab-act="mute">${tab.muted?"Rétablir le son":"Couper le son"}</button>
-    <button data-tab-act="pin">${tab.pinned?"Désépingler":"Épingler l'onglet"}</button>
-    <button data-tab-act="rename"${tab.pinned?"":" disabled"}>Renommer l'onglet épinglé</button>
-    ${otherGroups.length?`<hr/><div class="context-label">Ouvrir dans une autre app</div>${otherGroups.map(({g,apps})=>`<div class="context-label">${esc(g.name)}</div>${apps.map(a=>`<button data-tab-act="open-app" data-app-id="${esc(a.id)}">${esc(a.name)}</button>`).join("")}`).join("")}`:""}
+    <button data-tab-act="open-browser"><span>↗</span> Navigateur</button>
   </div>`;
 }
 
 function renderWorkspaceMenu(menu) {
   if (menu?.kind !== "workspace") return "";
   return `<div class="context-menu" style="left:${menu.x}px;top:${menu.y}px">
-    <button data-ws-act="properties">Propriétés groupe</button>
-    <button data-ws-act="previous">Groupe précédent</button>
-    <button data-ws-act="next">Groupe suivant</button>
+    <button data-ws-act="properties"><span>⚙</span> Propriétés</button>
+    <button data-ws-act="previous"><span>↑</span> Précédent</button>
+    <button data-ws-act="next"><span>↓</span> Suivant</button>
   </div>`;
 }
 
 function renderPageMenu(menu) {
   if (menu?.kind !== "page") return "";
   const tab = activeTab();
-  const x = menu.x, y = menu.y;
-  return `<div class="context-menu page-menu" style="left:${x}px;top:${y}px">
+  return `<div class="context-menu page-menu" style="left:${menu.x}px;top:${menu.y}px">
     <div class="context-label">Page</div>
-    <button data-page-act="back">Retour</button>
-    <button data-page-act="forward">Avant</button>
-    <button data-page-act="reload">Recharger</button>
-    <button data-page-act="share">Partager</button>
-    <button data-page-act="secret">${tab?.secret?"Retirer secret":"Onglet secret"}</button>
-    <button data-page-act="hide-secrets">${S.secretsHidden?"Afficher secrets":"Cacher secrets"}</button>
-    <button data-page-act="mask-url">${S.maskUrl?"Afficher URL":"Masquer URL"}</button>
-    <button data-page-act="external">Ouvrir navigateur</button>
+    <button data-page-act="reload"><span>↻</span> Recharger</button>
+    <button data-page-act="share"><span>⇪</span> Partager</button>
+    <button data-page-act="secret"><span>◈</span> ${tab?.secret?"Public":"Secret"}</button>
+    <hr/>
+    <button data-page-act="mask-url"><span>ø</span> ${S.maskUrl?"URL on":"URL off"}</button>
+    <button data-page-act="external"><span>↗</span> Navigateur</button>
   </div>`;
 }
 
 function renderAppBarMenu(menu) {
   if (menu?.kind !== "appbar") return "";
-  const app = activeApp();
-  const x = menu.x, y = menu.y;
-  return `<div class="context-menu appbar-menu" style="left:${x}px;top:${y}px">
-    <div class="context-label">App</div>
-    <button data-page-act="properties">Propriétés</button>
-    <button data-page-act="duplicate">Dupliquer</button>
-    <button data-page-act="notifications">${app?.notifications?"Couper notifs":"Activer notifs"}</button>
-    <button data-page-act="hidden">${app?.hidden?"Afficher":"Cacher"}</button>
-    <button data-page-act="clear-count">Reset compteur</button>
-    <button data-page-act="delete" class="danger-text">Supprimer</button>
-    <div class="context-label">Groupe</div>
-    <button data-page-act="ws-properties">Propriétés groupe</button>
-    <button data-page-act="ws-previous">Groupe précédent</button>
-    <button data-page-act="ws-next">Groupe suivant</button>
+  return `<div class="context-menu appbar-menu" style="left:${menu.x}px;top:${menu.y}px">
+    <div class="context-label">Actions</div>
+    <button data-page-act="properties"><span>⚙</span> Propriétés</button>
+    <button data-page-act="share"><span>⇪</span> Partager</button>
+    <button data-page-act="duplicate"><span>⧉</span> Dupliquer</button>
+    <hr/>
+    <button data-page-act="delete" class="danger-text" style="color:var(--accent-warning)"><span>✕</span> Supprimer</button>
   </div>`;
 }
 
@@ -1000,9 +975,9 @@ function renderAppBarMenu(menu) {
 function renderAddModal() {
   return `<div class="modal-backdrop" id="add-modal">
     <form class="modal" data-add-form>
-      <h2>Ajouter une app</h2>
-      <div class="field"><label>Nom<input name="name" placeholder="Ex: Perplexity" required /></label></div>
-      <div class="field"><label>URL<input name="url" placeholder="https://example.com" required /></label></div>
+      <h2>Ajouter une application</h2>
+      <div class="field"><label>Nom</label><input name="name" placeholder="Ex: Perplexity" required autofocus /></div>
+      <div class="field"><label>URL</label><input name="url" placeholder="https://..." required /></div>
       <div class="modal-actions">
         <button type="button" class="secondary" data-close-add>Annuler</button>
         <button type="submit" class="primary">Ajouter</button>
@@ -1015,32 +990,47 @@ function renderPropertiesModal() {
   const app = ui.propertiesAppId ? findApp(ui.propertiesAppId) : null;
   if (!app) return "";
   const icon = app.iconImage || favicon(app.url);
+  const colorItem = (c) => `<label class="color-swatch-label" style="background:${esc(c)}"><input type="radio" name="backgroundColor" value="${esc(c)}" ${app.backgroundColor===c?"checked":""}></label>`;
+
   return `<div class="modal-backdrop open" id="properties-modal">
     <form class="modal" data-props-form data-app-id="${esc(app.id)}">
-      <h2>Propriétés app</h2>
       <div class="property-head">
         <span class="app-icon large" style="background:${esc(app.color)}">${icon?`<img src="${esc(icon)}" alt="" />`:`${esc(initials(app.name))}`}</span>
-        <div><strong>${esc(app.name)}</strong><small>${esc(hostname(app.url))}</small>${app.partitionKey&&app.partitionKey!==app.id?`<small class="clone-info">Clone de ${esc(app.partitionKey)}</small>`:""}</div>
+        <div><strong>${esc(app.name)}</strong><small>${esc(hostname(app.url))}</small></div>
       </div>
-      <div class="field prop-ref"><label>Référence<input readonly value="${esc(app.id)}" onclick="this.select()" title="Identifiant unique de l'app" /></label></div>
-      <div class="field"><label>Nom<input name="name" value="${esc(app.name)}" required /></label></div>
-      <div class="field"><label>URL<input name="url" value="${esc(app.url)}" required /></label></div>
-      <div class="field"><label>Couleur icône<input name="color" type="color" value="${esc(app.color)}" /></label></div>
-      <div class="field"><label>Highlight<input name="highlightColor" type="color" value="${esc(app.highlightColor||"#ffffff")}" /></label></div>
-      <div class="field"><label>Image icône URL<input name="iconImage" value="${esc(app.iconImage||"")}" placeholder="https://..." /></label></div>
-      <div class="field"><label>Uploader icône<input type="file" accept="image/*" data-upload-app-icon="${esc(app.id)}" /></label></div>
-      <div class="field"><label>Priorité<input name="priority" type="number" value="${Number(app.priority||0)}" /></label></div>
-      <div class="field"><label>Compteur notifs<input name="notificationCount" type="number" min="0" value="${Number(app.notificationCount||0)}" /></label></div>
-      <label class="check-row"><input type="checkbox" name="notifications"${app.notifications?" checked":""}> Notifications</label>
-      <label class="check-row"><input type="checkbox" name="cachable"${app.cachable?" checked":""}> App cachable</label>
-      <label class="check-row"><input type="checkbox" name="hidden"${app.hidden?" checked":""}> App cachée</label>
-      <label class="check-row"><input type="checkbox" name="secret"${app.secret?" checked":""}> Mode secret par défaut</label>
-      <label class="check-row"><input type="checkbox" name="maskUrl"${app.maskUrl?" checked":""}> Masquer l'URL</label>
+      
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div class="field"><label>Nom</label><input name="name" value="${esc(app.name)}" required /></div>
+        <div class="field"><label>URL</label><input name="url" value="${esc(app.url)}" required /></div>
+      </div>
+
+      <div class="field"><label>Couleur de fond (Fluo & Pastel)</label>
+        <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:6px; margin-bottom:6px">
+          ${colorFluo.map(colorItem).join("")}
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:6px; align-items:center">
+          ${colorPale.map(colorItem).join("")}
+          <label class="color-swatch-label transparent-swatch"><input type="radio" name="backgroundColor" value="transparent" ${app.backgroundColor==="transparent"||!app.backgroundColor?"checked":""}>✕</label>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div class="field"><label>Couleur icône</label><input name="color" type="color" value="${esc(app.color)}" style="height:34px; padding:2px" /></div>
+        <div class="field"><label>Priorité</label><input name="priority" type="number" value="${Number(app.priority||0)}" /></div>
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; gap:12px;">
+        <label class="check-row"><input type="checkbox" name="notifications"${app.notifications?" checked":""}> Notifs</label>
+        <label class="check-row"><input type="checkbox" name="secret"${app.secret?" checked":""}> Secret</label>
+        <label class="check-row"><input type="checkbox" name="hidden"${app.hidden?" checked":""}> Caché</label>
+      </div>
+
       <div class="modal-actions split">
         <button type="button" class="danger" data-delete-app="${esc(app.id)}">Supprimer</button>
-        <span></span>
-        <button type="button" class="secondary" data-close-props>Annuler</button>
-        <button type="submit" class="primary">Enregistrer</button>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="secondary" data-close-props>Annuler</button>
+          <button type="submit" class="primary">Enregistrer</button>
+        </div>
       </div>
     </form>
   </div>`;
@@ -1049,24 +1039,36 @@ function renderPropertiesModal() {
 function renderWorkspaceModal() {
   const ws = ui.propertiesWorkspaceId ? findWorkspace(ui.propertiesWorkspaceId) : null;
   if (!ws) return "";
+  const colorItem = (c) => `<label class="color-swatch-label" style="background:${esc(c)}"><input type="radio" name="backgroundColor" value="${esc(c)}" ${ws.backgroundColor===c?"checked":""}></label>`;
+
   return `<div class="modal-backdrop open" id="workspace-modal">
     <form class="modal" data-ws-form data-ws-id="${esc(ws.id)}">
-      <h2>Propriétés groupe</h2>
-      <div class="property-head">
-        <span class="workspace-button active preview" style="background:${esc(ws.color)}">${ws.iconImage?`<img src="${esc(ws.iconImage)}" alt="" />`:`${esc(ws.icon)}`}</span>
-        <div><strong>${esc(ws.name)}</strong><small>Raccourci Cmd/Ctrl+1..9</small></div>
+      <h2>Propriétés du groupe</h2>
+      
+      <div class="field"><label>Nom du groupe</label><input name="name" value="${esc(ws.name)}" required /></div>
+      
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div class="field"><label>Icône texte</label><input name="icon" value="${esc(ws.icon)}" maxlength="2" required /></div>
+        <div class="field"><label>Priorité</label><input name="priority" type="number" value="${Number(ws.priority||0)}" /></div>
       </div>
-      <div class="field"><label>Nom<input name="name" value="${esc(ws.name)}" required /></label></div>
-      <div class="field"><label>Icône texte<input name="icon" value="${esc(ws.icon)}" maxlength="2" required /></label></div>
-      <div class="field"><label>Icône image URL<input name="iconImage" value="${esc(ws.iconImage||"")}" placeholder="https://..." /></label></div>
-      <div class="field"><label>Uploader icône<input type="file" accept="image/*" data-upload-ws-icon="${esc(ws.id)}" /></label></div>
-      <div class="field"><label>Couleur<input name="color" type="color" value="${esc(ws.color)}" /></label></div>
-      <div class="field"><label>Highlight<input name="highlightColor" type="color" value="${esc(ws.highlightColor||"#ffffff")}" /></label></div>
-      <div class="field"><label>Priorité<input name="priority" type="number" value="${Number(ws.priority||0)}" /></label></div>
-      <label class="check-row"><input type="checkbox" name="collapsed"${ws.collapsed?" checked":""}> Groupe replié par défaut</label>
+
+      <div class="field"><label>Couleur de fond (Fluo & Pastel)</label>
+        <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:6px; margin-bottom:6px">
+          ${colorFluo.map(colorItem).join("")}
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:6px; align-items:center">
+          ${colorPale.map(colorItem).join("")}
+          <label class="color-swatch-label transparent-swatch"><input type="radio" name="backgroundColor" value="transparent" ${ws.backgroundColor==="transparent"||!ws.backgroundColor?"checked":""}>✕</label>
+        </div>
+      </div>
+
+      <div class="field"><label>Couleur icône</label><input name="color" type="color" value="${esc(ws.color)}" style="height:34px; padding:2px" /></div>
+      
+      <label class="check-row"><input type="checkbox" name="collapsed"${ws.collapsed?" checked":""}> Replié par défaut</label>
+
       <div class="modal-actions">
         <button type="button" class="secondary" data-close-ws-modal>Annuler</button>
-        <button type="submit" class="primary">Enregistrer</button>
+        <button type="submit" class="primary">Enregistrer les modifications</button>
       </div>
     </form>
   </div>`;
@@ -1076,16 +1078,14 @@ function renderShareModal() {
   if (!ui.shareDraft) return "";
   return `<div class="modal-backdrop open" id="share-modal">
     <div class="modal">
-      <h2>Partager</h2>
+      <h2>Partager la page</h2>
       <div class="share-preview">${esc(shareText())}</div>
-      <div class="modal-actions share-actions">
+      <div class="share-actions">
         <button class="secondary" data-share-to="copy">Copier</button>
-        <button class="secondary" data-share-to="x">X</button>
+        <button class="secondary" data-share-to="x">X / Twitter</button>
         <button class="secondary" data-share-to="linkedin">LinkedIn</button>
-        <button class="secondary" data-share-to="buffer">Buffer</button>
-        <button class="primary" data-share-to="mail">Mail</button>
       </div>
-      <div class="modal-actions"><button class="secondary" data-close-share>Fermer</button></div>
+      <div class="modal-actions"><button class="primary" style="width:100%" data-close-share>Terminer</button></div>
     </div>
   </div>`;
 }
