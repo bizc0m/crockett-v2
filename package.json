@@ -12,11 +12,46 @@
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux"
   },
-  "keywords": ["electron", "webview", "workspace"],
+  "keywords": [
+    "electron",
+    "webview",
+    "workspace"
+  ],
   "author": "S3r4f1",
   "license": "MIT",
   "devDependencies": {
     "electron": "^30.0.0",
     "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.seraf1.crokett",
+    "productName": "croKETT",
+    "asar": true,
+    "compression": "maximum",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Productivity"
+    }
   }
 }

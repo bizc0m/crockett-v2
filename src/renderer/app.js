@@ -47,7 +47,19 @@ const STARTER = {
 };
 
 // Ephemeral UI state (not persisted)
-let ui = { menu: null, propertiesAppId: null, propertiesWorkspaceId: null, shareDraft: null, activeTabId: null, toast: null, groupMenuOpen: null };
+let ui = { 
+  menu: null, 
+  propertiesAppId: null, 
+  propertiesWorkspaceId: null, 
+  shareDraft: null, 
+  activeTabId: null, 
+  toast: null, 
+  groupMenuOpen: null,
+  quickSwitcherOpen: false,
+  quickSwitcherQuery: "",
+  quickSwitcherIndex: 0,
+  quickSwitcherResults: []
+};
 
 let S = loadState();
 const root = document.getElementById("app");
@@ -550,6 +562,55 @@ async function removeChromeExtension(id) {
   S.chromeExtensions = S.chromeExtensions.filter(e => e.id !== id); commit();
 }
 
+function updateQuickSwitcherResults() {
+  const query = ui.quickSwitcherQuery.toLowerCase().trim();
+  const results = [];
+
+  S.workspaces.forEach(ws => {
+    if (ws.name.toLowerCase().includes(query)) {
+      results.push({ kind: "workspace", id: ws.id, name: ws.name, icon: ws.icon, iconImage: ws.iconImage, color: ws.color });
+    }
+    const apps = S.appsByWorkspace[ws.id] || [];
+    apps.forEach(app => {
+      if (app.name.toLowerCase().includes(query) || app.url.toLowerCase().includes(query)) {
+        results.push({ kind: "app", id: app.id, workspaceId: ws.id, name: app.name, url: app.url, color: app.color, iconImage: app.iconImage });
+      }
+    });
+  });
+
+  ui.quickSwitcherResults = results.slice(0, 10);
+  ui.quickSwitcherIndex = Math.min(ui.quickSwitcherIndex, Math.max(0, ui.quickSwitcherResults.length - 1));
+}
+
+function renderQuickSwitcher() {
+  if (!ui.quickSwitcherOpen) return "";
+  return `
+    <div class="quick-switcher-backdrop" data-close-switcher>
+      <div class="quick-switcher">
+        <div class="quick-switcher-input-wrap">
+          <input type="text" placeholder="Rechercher une app ou un workspace..." data-switcher-input value="${esc(ui.quickSwitcherQuery)}" autofocus />
+        </div>
+        <div class="quick-switcher-results">
+          ${ui.quickSwitcherResults.length ? ui.quickSwitcherResults.map((r, i) => {
+            const selected = i === ui.quickSwitcherIndex;
+            const icon = r.iconImage || (r.kind === "app" ? favicon(r.url) : "");
+            return `
+              <div class="quick-result${selected ? " selected" : ""}" data-switcher-select="${i}">
+                <div class="quick-result-icon" style="background:${esc(r.color || "var(--bg-tertiary)")}">
+                  ${icon ? `<img src="${esc(icon)}" alt="" />` : `<span class="group-glyph">${esc(r.icon || initials(r.name))}</span>`}
+                </div>
+                <div class="quick-result-info">
+                  <span class="quick-result-title">${esc(r.name)}</span>
+                  <span class="quick-result-meta">${esc(r.kind === "workspace" ? "Workspace" : hostname(r.url))}</span>
+                </div>
+                <div class="quick-result-hint">${esc(r.kind)}</div>
+              </div>`;
+          }).join("") : `<div class="empty-settings">Aucun résultat.</div>`}
+        </div>
+      </div>
+    </div>`;
+}
+
 // ── RENDER ────────────────────────────────────────────────────────────────────
 
 function applyChrome() {
@@ -601,39 +662,39 @@ function render() {
       ${S.workspaces.map((g, gi) => {
         const gApps = (S.appsByWorkspace[g.id] || []).filter(a => (S.showHiddenApps || !a.hidden) && (!S.hideCachableApps || !a.cachable));
         const col = Boolean(g.collapsed);
+        const isActive = g.id === ws.id;
         return `
-          <div class="unified-group${col?" collapsed":""}" data-ws-drop="${esc(g.id)}" style="background: ${esc(g.backgroundColor || "transparent")};">
-            <div class="unified-group-row${g.id === ws.id?" active":""}">
-              <button class="outliner-toggle" data-toggle-ws="${esc(g.id)}" title="${col?"Déplier":"Replier"}">${col?"▸":"▾"}</button>
-              <button class="unified-group-title" draggable="true" data-ws="${esc(g.id)}" title="${esc(g.name)} - Cmd/Ctrl+${gi+1}" style="--highlight:${esc(g.highlightColor||"transparent")}">
+          <div class="unified-group" data-ws-drop="${esc(g.id)}">
+            <div class="unified-group-row${isActive?" active":""}" data-ws="${esc(g.id)}">
+              <span class="outliner-toggle">${col?"▸":"▾"}</span>
+              <div class="unified-group-title">
                 ${g.iconImage?`<img src="${esc(g.iconImage)}" alt="" />`:`<span class="group-glyph">${esc(g.icon||"")}</span>`}
                 <span>${esc(g.name)}${gApps.length?` (${gApps.length})`:""}</span>
-              </button>
-              <button class="group-menu-btn" data-group-menu-btn="${esc(g.id)}" title="Fond">⋮</button>
+              </div>
+              <button class="group-menu-btn" data-group-menu-btn="${esc(g.id)}">⋮</button>
             </div>
             ${ui.groupMenuOpen === g.id ? `
             <div class="group-color-menu">
-              <div class="color-grid">
-                ${colorFluo.map(c => `<button class="color-btn" data-bg-color="${esc(g.id)}:${esc(c)}" style="background: ${esc(c)};" title="${esc(c)}"></button>`).join("")}
+              <div class="color-grid" style="margin-bottom:8px">
+                ${colorFluo.map(c => `<button class="color-btn" data-bg-color="${esc(g.id)}:${esc(c)}" style="background: ${esc(c)};"></button>`).join("")}
               </div>
-              <div class="color-grid">
-                ${colorPale.map(c => `<button class="color-btn" data-bg-color="${esc(g.id)}:${esc(c)}" style="background: ${esc(c)};" title="${esc(c)}"></button>`).join("")}
+              <div class="color-grid" style="margin-bottom:8px">
+                ${colorPale.map(c => `<button class="color-btn" data-bg-color="${esc(g.id)}:${esc(c)}" style="background: ${esc(c)};"></button>`).join("")}
               </div>
+              <button class="secondary" style="width:100%; font-size:10px; padding:4px" data-bg-color="${esc(g.id)}:transparent">✕ Réinitialiser la couleur</button>
             </div>
             ` : ""}
             <div class="app-list"${col?" hidden":""}>
               ${gApps.map(a => {
                 const icon = a.iconImage || favicon(a.url);
-                const active = g.id === ws.id && app?.id === a.id;
+                const isAppActive = isActive && app?.id === a.id;
                 const isClone = Boolean(a.partitionKey && a.partitionKey !== a.id);
                 return `
-                  <button class="app-button cookie-app${active?" active":""}${a.hidden?" hidden-app":""}${a.cachable?" cachable-app":""}${isClone?" clone-app":""}" draggable="true" data-ws-app="${esc(g.id)}:${esc(a.id)}" title="${esc(a.name)}${isClone?` · Clone · Réf: ${esc(a.id)}`:` · Réf: ${esc(a.id)}`}" style="--highlight:${esc(a.highlightColor||"transparent")}">
-                    <span class="app-icon-wrap">
-                      <span class="app-icon" style="background:${esc(a.color)}">${icon?`<img src="${esc(icon)}" alt="" />`:`${esc(initials(a.name))}`}</span>
-                      ${badge(a)}
-                      ${isClone?`<span class="clone-badge" title="Clone de ${esc(a.partitionKey||a.id)}">⊕</span>`:""}
-                    </span>
-                    <span class="app-copy"><span class="app-name">${esc(a.name)}</span></span>
+                  <button class="app-button${isAppActive?" active":""}${a.hidden?" hidden-app":""}" draggable="true" data-ws-app="${esc(g.id)}:${esc(a.id)}">
+                    <span class="app-icon" style="background:${esc(a.color)}">${icon?`<img src="${esc(icon)}" alt="" />`:`${esc(initials(a.name))}`}</span>
+                    <span class="app-name">${esc(a.name)}</span>
+                    ${isClone?`<span class="clone-badge">⊕</span>`:""}
+                    ${badge(a)}
                   </button>`;
               }).join("")}
             </div>
@@ -642,36 +703,39 @@ function render() {
     </section>
     <div class="cookie-footer">
       <button data-add-ws>+ Groupe</button>
-      <button class="cookie-add-app" data-open-add>+ App</button>
+      <button data-open-add>+ App</button>
       <button data-toggle-cachable>${S.hideCachableApps?"Afficher":"Masquer"}</button>
-      <button data-open-settings="general">⚙ Réglages</button>
+      <button data-open-settings="general">Réglages</button>
     </div>`;
 
   // Update toolbar
   root.querySelector(".toolbar").innerHTML = `
     <div class="nav-controls">
-      <button class="icon-button" data-nav="back" title="Retour">←</button>
-      <button class="icon-button" data-nav="forward" title="Avant">→</button>
-      <button class="icon-button" data-nav="reload" title="Recharger">↻</button>
+      <button class="icon-button" data-nav="back">←</button>
+      <button class="icon-button" data-nav="forward">→</button>
+      <button class="icon-button" data-nav="reload">↻</button>
     </div>
     <form class="address-form" data-url-form>
-      <span>URL</span>
       <input name="url" value="${esc(maskUrl ? hostname(tab?.url||"") : tab?.url||"")}" autocomplete="off" spellcheck="false" ${maskUrl?"readonly":""} />
     </form>
     <div class="right-controls">
-      <button class="icon-button" data-new-tab title="Nouvel onglet">+</button>
-      <button class="icon-button" data-share title="Partager">⇪</button>
-      <button class="icon-button${splitReady?" armed":""}" data-split-toggle title="Double vue">Ⅱ</button>
-      <button class="icon-button page-menu-button" data-page-menu-btn title="Page">☰</button>
-      <button class="icon-button" data-appbar-menu-btn title="App & groupe">⊙</button>
-      <button class="icon-button" data-open-settings="general" title="Paramètres">⚙</button>
-      <button class="icon-button" data-external title="Ouvrir navigateur">↗</button>
+      <button class="icon-button" data-new-tab>+</button>
+      <button class="icon-button" data-share>⇪</button>
+      <button class="icon-button${splitReady?" armed":""}" data-split-toggle>Ⅱ</button>
+      <button class="icon-button" data-page-menu-btn>☰</button>
+      <button class="icon-button" data-appbar-menu-btn>⊙</button>
+      <button class="icon-button" data-external>↗</button>
     </div>`;
 
   // Update tabbar
   root.querySelector(".tabbar").innerHTML = vtabs.map(t => `
     <button class="tab${t.id===ui.activeTabId?" active":""}${t.secret?" secret":""}${t.pinned?" pinned":""}${t.muted?" muted":""}" data-tab="${esc(t.id)}">
-      <span class="tab-title">${t.pinned?`<span class="tab-flag tab-flag-pin" title="Épinglé">▲</span>`:""}${t.muted?`<span class="tab-flag tab-flag-mute" title="Muet">◉</span>`:""}${t.secret?`<span class="tab-flag tab-flag-secret" title="Secret">◈</span>`:""}${esc(t.title)}</span>
+      <span class="tab-title">
+        ${t.pinned?`<span class="tab-flag tab-flag-pin">▲</span>`:""}
+        ${t.muted?`<span class="tab-flag tab-flag-mute">◉</span>`:""}
+        ${t.secret?`<span class="tab-flag tab-flag-secret">◈</span>`:""}
+        ${esc(t.title)}
+      </span>
       <span class="tab-menu-trigger" data-tab-menu="${esc(t.id)}">⌄</span>
       <span class="tab-close" data-close-tab="${esc(t.id)}">×</span>
     </button>`).join("");
@@ -689,6 +753,7 @@ function render() {
     ${renderPageMenu(menu)}
     ${renderAppBarMenu(menu)}
     ${renderToast()}
+    ${renderQuickSwitcher()}
   `;
 
   // Update webviews without ever detaching them from the DOM
@@ -758,6 +823,8 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
           wv.setAttribute("data-tab-id", pTab.id);
           wv.setAttribute("data-app-id", pane.app.id);
           wv.setAttribute("allowpopups", "");
+          wv.setAttribute("useragent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+
         }
         wv.className = `active pane-${side}`;
         wv.dataset.muted = pTab.muted ? "true" : "false";
@@ -800,6 +867,7 @@ function syncWebviews(frame, ws, app, splitReady, lPane, lTab, rPane, rTab) {
             wv.setAttribute("data-tab-id", t.id);
             wv.setAttribute("data-app-id", app.id);
             wv.setAttribute("allowpopups", "");
+            wv.setAttribute("useragent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
             frame.appendChild(wv);
           }
           wv.className = t.id === ui.activeTabId ? "active pane-left" : "";
@@ -1039,74 +1107,99 @@ function renderSettings() {
 
 function renderSettingsBody() {
   const sw = (key) => `<button class="switch${S[key]?" on":""}" data-toggle="${esc(key)}"><span></span></button>`;
+  
   if (S.settingsSection === "general") return `
-    <div class="settings-card"><div><h3>Masquer l'URL</h3><p>Affiche seulement le domaine.</p></div>${sw("maskUrl")}</div>
-    <div class="settings-card"><div><h3>Mode interface</h3><p>A compact, B normal, C large.</p></div>
-      <div class="segmented settings-segmented">${["compact","normal","large"].map(d=>`<button class="${S.density===d?"active":""}" data-density="${d}">${{compact:"A",normal:"B",large:"C"}[d]}</button>`).join("")}</div></div>
-    <div class="settings-card"><div><h3>Apps cachées</h3><p>Affiche temporairement les apps cachées.</p></div>${sw("showHiddenApps")}</div>
-    <div class="settings-card"><div><h3>Masquer apps cachables</h3><p>Cache les apps marquées cachables.</p></div>${sw("hideCachableApps")}</div>
-    <div class="settings-card"><div><h3>Colonne compacte</h3><p>Icônes seules dans la sidebar.</p></div>${sw("sidebarCollapsed")}</div>
-    <div class="settings-card column"><h3>Taille des icônes</h3>
-      <div class="range-grid">
-        <label><span>Groupes <strong>${S.groupIconSize}px</strong></span><input type="range" min="14" max="72" value="${S.groupIconSize}" data-icon-size="group" /></label>
-        <label><span>Apps <strong>${S.appIconSize}px</strong></span><input type="range" min="12" max="58" value="${S.appIconSize}" data-icon-size="app" /></label>
-      </div>
-    </div>`;
-  if (S.settingsSection === "extensions") return `
-    <div class="settings-card"><div><h3>Bloqueur de publicités</h3><p>Filtre les publicités courantes.</p></div>${sw("adBlockEnabled")}</div>
-    <div class="settings-card column">
-      <div class="settings-card-head"><div><h3>Extensions Chrome</h3><p>Charge des extensions unpacked Chromium.</p></div><button class="primary" data-add-ext>Ajouter un dossier</button></div>
-      <div class="extension-list">${S.chromeExtensions.length?S.chromeExtensions.map(renderExtRow).join(""):`<div class="empty-settings">Aucune extension chargée.</div>`}</div>
-    </div>`;
-  if (S.settingsSection === "downloads") return `
-    <div class="settings-card"><div><h3>Demander où enregistrer</h3></div>${sw("askDownloadLocation")}</div>
-    <div class="settings-card column"><h3>Dossier par défaut</h3><input class="settings-input" data-text-setting="downloadsPath" value="${esc(S.downloadsPath)}" placeholder="~/Downloads" /></div>`;
-  if (S.settingsSection === "notifications") return `
-    <div class="settings-card"><div><h3>Notifications globales</h3></div>${sw("globalNotifications")}</div>
-    <div class="settings-card"><div><h3>Badges sur les apps</h3></div>${sw("notificationBadges")}</div>
-    <div class="settings-card"><div><h3>Son de notification</h3></div>${sw("notificationSound")}</div>`;
-  if (S.settingsSection === "shortcuts") return `
-    <div class="settings-card"><div><h3>Raccourcis clavier</h3><p>Cmd/Ctrl+1..9, Alt+flèches.</p></div>${sw("shortcutsEnabled")}</div>
-    <div class="settings-card"><div><h3>Aide compacte</h3></div>${sw("compactShortcuts")}</div>`;
-  if (S.settingsSection === "permissions") return `
-    <div class="settings-card column"><h3>Autorisations</h3>
-      <div class="settings-select-grid">${["cameraPermission","microphonePermission","locationPermission"].map((k,i)=>{
-        const labels=["Caméra","Micro","Localisation"];
-        return `<label><span>${labels[i]}</span><select data-perm="${esc(k)}">${["ask","allow","block"].map(v=>`<option value="${v}"${S[k]===v?" selected":""}>${{ask:"Demander",allow:"Autoriser",block:"Bloquer"}[v]}</option>`).join("")}</select></label>`;
-      }).join("")}</div></div>`;
-  if (S.settingsSection === "fonts") return `
-    <div class="settings-card column"><h3>Police de l'interface</h3>
-      <div class="settings-select-grid">
-        <label><span>Famille</span><select data-font-family>
-          ${[["system","Système (défaut)"],["sans","Sans-serif"],["serif","Serif"],["mono","Monospace"]].map(([v,l])=>`<option value="${v}"${S.uiFont===v?" selected":""}>${l}</option>`).join("")}
-        </select></label>
+    <div class="settings-card">
+      <h3>Affichage & Interface</h3>
+      <p>Personnalisez le comportement visuel de votre environnement.</p>
+      <div class="settings-control-group">
+        <div class="settings-row"><div><strong>Masquer l'URL</strong><br><small>Affiche seulement le domaine pour plus de clarté.</small></div>${sw("maskUrl")}</div>
+        <div class="settings-row"><div><strong>Colonne compacte</strong><br><small>Icônes seules dans la barre latérale.</small></div>${sw("sidebarCollapsed")}</div>
+        <div class="settings-row"><div><strong>Mode interface</strong></div>
+          <select data-density="${S.density}">
+            <option value="compact"${S.density==="compact"?" selected":""}>Compact</option>
+            <option value="normal"${S.density==="normal"?" selected":""}>Normal</option>
+            <option value="large"${S.density==="large"?" selected":""}>Large</option>
+          </select>
+        </div>
       </div>
     </div>
-    <div class="settings-card column"><h3>Taille du texte</h3>
-      <div class="range-grid"><label><span>Interface <strong>${S.fontScale}%</strong></span><input type="range" min="80" max="130" step="5" value="${S.fontScale}" data-range-setting="fontScale" /></label></div>
-    </div>`;
-  if (S.settingsSection === "sync") return `
-    <div class="settings-card"><div><h3>Sync locale</h3></div>${sw("syncEnabled")}</div>`;
-  if (S.settingsSection === "import") return `
-    <div class="settings-card column"><h3>Importer / Exporter</h3><div class="settings-actions">
-      <button class="primary" data-export>Exporter JSON</button>
-      <button class="secondary" data-import>Importer JSON</button>
-      <input type="file" id="import-file" accept="application/json" hidden />
-    </div></div>`;
-  if (S.settingsSection === "advanced") return `
-    <form class="settings-card column" data-skin-form>
-      <h3>Skin personnalisé</h3>
-      <div class="color-grid">
-        <label>Fond<input type="color" name="cream" value="${esc(S.customSkin.cream)}" /></label>
-        <label>Sidebar<input type="color" name="sidebar" value="${esc(S.customSkin.sidebar)}" /></label>
-        <label>Accent<input type="color" name="accent" value="${esc(S.customSkin.accent)}" /></label>
+    <div class="settings-card">
+      <h3>Visibilité</h3>
+      <div class="settings-control-group">
+        <div class="settings-row"><div><strong>Apps cachées</strong><br><small>Afficher temporairement les applications masquées.</small></div>${sw("showHiddenApps")}</div>
+        <div class="settings-row"><div><strong>Masquer apps filtrées</strong><br><small>Cacher les apps marquées comme "cachables".</small></div>${sw("hideCachableApps")}</div>
       </div>
-      <div class="field"><label>Skin<select data-skin-select>
-        ${["biscuit","dark","mono","custom"].map(v=>`<option value="${v}"${S.skin===v?" selected":""}>${v.charAt(0).toUpperCase()+v.slice(1)}</option>`).join("")}
-      </select></label></div>
-      <button class="primary" type="submit">Appliquer</button>
-    </form>`;
-  return `<div class="settings-card"><h3>Paramètres</h3></div>`;
+    </div>`;
+
+  if (S.settingsSection === "extensions") return `
+    <div class="settings-card">
+      <h3>Extensions & Sécurité</h3>
+      <div class="settings-control-group">
+        <div class="settings-row"><div><strong>Bloqueur de publicités</strong><br><small>Filtre natif des publicités courantes.</small></div>${sw("adBlockEnabled")}</div>
+      </div>
+    </div>
+    <div class="settings-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3>Extensions Chrome</h3>
+        <button class="primary" data-add-ext>+ Ajouter</button>
+      </div>
+      <div class="extension-list">${S.chromeExtensions.length?S.chromeExtensions.map(renderExtRow).join(""):`<div class="empty-settings">Aucune extension chargée.</div>`}</div>
+    </div>`;
+
+  if (S.settingsSection === "notifications") return `
+    <div class="settings-card">
+      <h3>Notifications</h3>
+      <div class="settings-control-group">
+        <div class="settings-row"><div><strong>Notifications globales</strong></div>${sw("globalNotifications")}</div>
+        <div class="settings-row"><div><strong>Badges sur les apps</strong></div>${sw("notificationBadges")}</div>
+        <div class="settings-row"><div><strong>Signal sonore</strong></div>${sw("notificationSound")}</div>
+      </div>
+    </div>`;
+
+  if (S.settingsSection === "downloads") return `
+    <div class="settings-card">
+      <h3>Téléchargements</h3>
+      <div class="settings-control-group">
+        <div class="settings-row"><div><strong>Demander l'emplacement</strong></div>${sw("askDownloadLocation")}</div>
+        <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+          <strong>Dossier par défaut</strong>
+          <input type="text" style="width:100%" data-text-setting="downloadsPath" value="${esc(S.downloadsPath)}" placeholder="~/Downloads" />
+        </div>
+      </div>
+    </div>`;
+
+  if (S.settingsSection === "fonts") return `
+    <div class="settings-card">
+      <h3>Typographie</h3>
+      <div class="settings-control-group">
+        <div class="settings-row">
+          <strong>Police de l'interface</strong>
+          <select data-font-family>
+            ${[["system","Système"],["sans","Sans-serif"],["serif","Serif"],["mono","Monospace"]].map(([v,l])=>`<option value="${v}"${S.uiFont===v?" selected":""}>${l}</option>`).join("")}
+          </select>
+        </div>
+        <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+          <div style="display:flex; justify-content:space-between; width:100%"><strong>Taille du texte</strong><span>${S.fontScale}%</span></div>
+          <input type="range" style="width:100%" min="80" max="130" step="5" value="${S.fontScale}" data-range-setting="fontScale" />
+        </div>
+      </div>
+    </div>`;
+
+  if (S.settingsSection === "import") return `
+    <div class="settings-card">
+      <h3>Sauvegarde & Import</h3>
+      <p>Exportez votre configuration pour la synchroniser sur un autre poste.</p>
+      <div class="settings-control-group">
+        <div class="settings-row">
+          <button class="primary" data-export>Exporter la configuration</button>
+          <button class="secondary" data-import>Importer un fichier JSON</button>
+          <input type="file" id="import-file" accept="application/json" hidden />
+        </div>
+      </div>
+    </div>`;
+
+  return `<div class="settings-card"><h3>Paramètres</h3><p>Section en cours de maintenance.</p></div>`;
 }
 
 function renderExtRow(e) {
@@ -1186,7 +1279,13 @@ function syncWv(wv) {
 function updateWvTitle(wv, title) {
   const tab = findTabById(wv.dataset.tabId); if (!tab || tab.pinned) return;
   const clean = String(title||"").replace(/^\(\d+\)\s*/,"");
-  if (tab.title !== clean) { tab.title = clean; save(); render(); }
+  if (tab.title !== clean) {
+    tab.title = clean;
+    save();
+    // Surgical update instead of full render
+    const tabEl = document.querySelector(`[data-tab="${esc(tab.id)}"] .tab-title`);
+    if (tabEl) tabEl.textContent = clean;
+  }
 }
 function applyMute(wv) {
   if (typeof wv.setAudioMuted === "function") wv.setAudioMuted(wv.dataset.muted === "true");
@@ -1208,6 +1307,20 @@ document.addEventListener("drop", onDrop);
 
 function onClick(e) {
   const t = e.target;
+
+  // Quick Switcher delegation
+  if (t.closest("[data-close-switcher]")) { ui.quickSwitcherOpen = false; render(); return; }
+  const switcherSelect = t.closest("[data-switcher-select]");
+  if (switcherSelect) {
+    const res = ui.quickSwitcherResults[Number(switcherSelect.dataset.switcherSelect)];
+    if (res) {
+      ui.quickSwitcherOpen = false;
+      if (res.kind === "workspace") selectWorkspace(res.id);
+      if (res.kind === "app") selectApp(res.id, res.workspaceId);
+    }
+    return;
+  }
+  if (t.closest(".quick-switcher")) return;
 
   // ── Tab inner buttons (closest finds deepest match first) ────────────────
   const closeTab = t.closest("[data-close-tab]");
@@ -1352,7 +1465,15 @@ function onClick(e) {
 
   // ── Sidebar ──────────────────────────────────────────────────────────────
   const wsBtn = t.closest("[data-ws]");
-  if (wsBtn) { selectWorkspace(wsBtn.dataset.ws); return; }
+  if (wsBtn) {
+    const wid = wsBtn.dataset.ws;
+    if (wid === S.activeWorkspaceId) {
+      toggleWorkspaceCollapsed(wid);
+    } else {
+      selectWorkspace(wid);
+    }
+    return;
+  }
   const toggleWs = t.closest("[data-toggle-ws]");
   if (toggleWs) { toggleWorkspaceCollapsed(toggleWs.dataset.toggleWs); return; }
   const appBtn = t.closest("[data-ws-app]");
@@ -1473,6 +1594,14 @@ function onSubmit(e) {
 
 function onInput(e) {
   const t = e.target;
+
+  if (t.matches("[data-switcher-input]")) {
+    ui.quickSwitcherQuery = t.value;
+    updateQuickSwitcherResults();
+    render();
+    return;
+  }
+
   const iconSize = t.closest("[data-icon-size]");
   if (iconSize) {
     const kind = iconSize.dataset.iconSize;
@@ -1487,8 +1616,36 @@ function onInput(e) {
 }
 
 function onKeyDown(e) {
-  if (!S.shortcutsEnabled) return;
   const mod = e.metaKey || e.ctrlKey;
+
+  // Quick Switcher Shortcuts
+  if (ui.quickSwitcherOpen) {
+    if (e.key === "Escape") { ui.quickSwitcherOpen = false; render(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); ui.quickSwitcherIndex = (ui.quickSwitcherIndex + 1) % ui.quickSwitcherResults.length; render(); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); ui.quickSwitcherIndex = (ui.quickSwitcherIndex - 1 + ui.quickSwitcherResults.length) % ui.quickSwitcherResults.length; render(); return; }
+    if (e.key === "Enter") {
+      const res = ui.quickSwitcherResults[ui.quickSwitcherIndex];
+      if (res) {
+        ui.quickSwitcherOpen = false;
+        if (res.kind === "workspace") selectWorkspace(res.id);
+        if (res.kind === "app") selectApp(res.id, res.workspaceId);
+      }
+      return;
+    }
+  }
+
+  if (mod && e.key === "k") {
+    e.preventDefault();
+    ui.quickSwitcherOpen = true;
+    ui.quickSwitcherQuery = "";
+    ui.quickSwitcherIndex = 0;
+    updateQuickSwitcherResults();
+    render();
+    setTimeout(() => document.querySelector("[data-switcher-input]")?.focus(), 10);
+    return;
+  }
+
+  if (!S.shortcutsEnabled) return;
   if (mod) {
     const n = Number(e.key);
     if (n >= 1 && n <= 9 && S.workspaces[n-1]) { e.preventDefault(); selectWorkspace(S.workspaces[n-1].id); return; }
