@@ -8,13 +8,14 @@ export function normalizePermissionValue(value, fallback = "ask") {
 }
 
 export function normalizeExternalUrl(value) {
-  const raw = String(value || "").trim();
-  if (!raw) throw new Error("URL externe vide.");
-  const parsed = new URL(raw);
-  if (!allowedExternalProtocols.has(parsed.protocol)) {
-    throw new Error(`Protocole externe interdit: ${parsed.protocol}`);
+  try {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const parsed = new URL(raw);
+    return allowedExternalProtocols.has(parsed.protocol) ? parsed.href : "";
+  } catch {
+    return "";
   }
-  return parsed.href;
 }
 
 export function expandHomePath(value, homeDirectory) {
@@ -24,6 +25,10 @@ export function expandHomePath(value, homeDirectory) {
 }
 
 export function safeDownloadFilename(filename) {
-  const clean = path.basename(String(filename || "download"));
+  const clean = String(filename || "download")
+    .replace(/^(\.\.[/\\])+/, (match) => "_".repeat(match.length + 3))
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/[\u0000-\u001f]/g, "_")
+    .trim();
   return clean && clean !== "." && clean !== ".." ? clean : "download";
 }

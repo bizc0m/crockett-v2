@@ -69,11 +69,8 @@ function secureWindowOpen(win) {
 }
 
 function openExternalSafely(url) {
-  try {
-    shell.openExternal(normalizeExternalUrl(url)).catch(() => {});
-  } catch {
-    // Ignore unsafe or malformed popup URLs.
-  }
+  const normalized = normalizeExternalUrl(url);
+  if (normalized) shell.openExternal(normalized).catch(() => {});
 }
 
 function permissionAllowed(permission) {
@@ -194,7 +191,10 @@ app.on("window-all-closed", () => {
 });
 
 ipcMain.handle("open-external", async (_event, url) => {
-  await shell.openExternal(normalizeExternalUrl(url));
+  const normalized = normalizeExternalUrl(url);
+  if (!normalized) return false;
+  await shell.openExternal(normalized);
+  return true;
 });
 
 ipcMain.handle("copy-text", async (_event, text) => {
@@ -202,6 +202,8 @@ ipcMain.handle("copy-text", async (_event, text) => {
 });
 
 ipcMain.handle("open-new-window", async (_event, url) => {
+  const normalized = normalizeExternalUrl(url);
+  if (!normalized) return false;
   const win = new BrowserWindow(windowOptions({
     width: 1180,
     height: 760,
@@ -209,7 +211,8 @@ ipcMain.handle("open-new-window", async (_event, url) => {
     minHeight: 520
   }));
   secureWindowOpen(win);
-  await win.loadURL(normalizeExternalUrl(url));
+  await win.loadURL(normalized);
+  return true;
 });
 
 ipcMain.handle("set-permissions", async (_event, permissions) => {

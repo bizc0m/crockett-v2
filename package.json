@@ -20,8 +20,8 @@
   "author": "S3r4f1",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^30.0.0",
-    "electron-builder": "^24.0.0"
+    "electron": "^42.1.0",
+    "electron-builder": "^26.8.1"
   },
   "build": {
     "appId": "com.seraf1.crokett",

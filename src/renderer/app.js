@@ -66,6 +66,15 @@ const root = document.getElementById("app");
 let wvFrame = null; // persistent — never destroyed between renders
 S.settingsOpen = false;
 
+const D = {
+  appById: new Map(),
+  workspaceById: new Map(),
+  workspaceIdByAppId: new Map(),
+  tabById: new Map(),
+  visibleWorkspaceApps: [],
+  visibleWorkspaceAppsKey: ""
+};
+
 // Platform class — used by CSS to handle macOS traffic lights
 if (navigator.userAgent.includes("Mac")) document.body.classList.add("platform-mac");
 
@@ -77,7 +86,46 @@ function loadState() {
   } catch { return migrate(STARTER); }
 }
 
-function save() { localStorage.setItem("crokETT.state", JSON.stringify(S)); }
+function rebuildDerived() {
+  D.appById.clear();
+  D.workspaceById.clear();
+  D.workspaceIdByAppId.clear();
+  D.tabById.clear();
+
+  S.workspaces.forEach((workspace) => {
+    D.workspaceById.set(workspace.id, workspace);
+    (S.appsByWorkspace[workspace.id] || []).forEach((app) => {
+      D.appById.set(app.id, app);
+      D.workspaceIdByAppId.set(app.id, workspace.id);
+    });
+  });
+  Object.values(S.tabsByApp || {}).forEach((tabs) => {
+    tabs.forEach((tab) => D.tabById.set(tab.id, tab));
+  });
+
+  const visibleKey = JSON.stringify({
+    showHiddenApps: S.showHiddenApps,
+    hideCachableApps: S.hideCachableApps,
+    workspaces: S.workspaces.map((workspace) => workspace.id),
+    apps: Object.fromEntries(Object.entries(S.appsByWorkspace || {}).map(([workspaceId, apps]) => [
+      workspaceId,
+      (apps || []).map((app) => [app.id, Boolean(app.hidden), Boolean(app.cachable)])
+    ]))
+  });
+  if (visibleKey !== D.visibleWorkspaceAppsKey) {
+    D.visibleWorkspaceAppsKey = visibleKey;
+    D.visibleWorkspaceApps = S.workspaces.flatMap((workspace) =>
+      (S.appsByWorkspace[workspace.id] || [])
+        .filter((app) => (S.showHiddenApps || !app.hidden) && (!S.hideCachableApps || !app.cachable))
+        .map((app) => ({ workspaceId: workspace.id, app }))
+    );
+  }
+}
+
+function save() {
+  rebuildDerived();
+  localStorage.setItem("crokETT.state", JSON.stringify(S));
+}
 
 function commit() { save(); render(); }
 
@@ -151,6 +199,8 @@ function migrate(raw) {
   return s;
 }
 
+rebuildDerived();
+
 // ── HELPERS ──────────────────────────────────────────────────────────────────
 
 function esc(v) {
@@ -171,7 +221,7 @@ function initials(name) { return String(name).split(/\s+/).map(p => p[0]).join("
 
 // ── QUERIES ───────────────────────────────────────────────────────────────────
 
-function activeWorkspace() { return S.workspaces.find(w => w.id === S.activeWorkspaceId) || S.workspaces[0]; }
+function activeWorkspace() { return D.workspaceById.get(S.activeWorkspaceId) || S.workspaces[0]; }
 function activeApps()      { return S.appsByWorkspace[S.activeWorkspaceId] || []; }
 function visibleApps() {
   return activeApps().filter(a => {
@@ -185,22 +235,20 @@ function activeApp() {
   const id = S.activeAppByWorkspace[S.activeWorkspaceId] || apps[0]?.id;
   return apps.find(a => a.id === id) || apps[0];
 }
-function findApp(id)       { return activeApps().find(a => a.id === id); }
-function findWorkspace(id) { return S.workspaces.find(w => w.id === id); }
+function findApp(id)       { return D.appById.get(id); }
+function findWorkspace(id) { return D.workspaceById.get(id); }
 function findWorkspaceForApp(appId) {
-  return Object.keys(S.appsByWorkspace).find(wid => (S.appsByWorkspace[wid] || []).some(a => a.id === appId));
+  return D.workspaceIdByAppId.get(appId);
 }
 function findTabById(tabId) {
-  for (const tabs of Object.values(S.tabsByApp)) {
-    const t = tabs.find(t => t.id === tabId);
-    if (t) return t;
-  }
-  return null;
+  return D.tabById.get(tabId) || null;
 }
 function tabsFor(appId) {
   if (!S.tabsByApp[appId]) {
     const app = [...appCatalog, ...activeApps()].find(a => a.id === appId);
-    S.tabsByApp[appId] = [{ id:`${appId}-${Date.now()}`, title: app?.name || "Nouvel onglet", url: app?.url || "about:blank", secret: false, muted: false, pinned: false }];
+    const tab = { id:`${appId}-${Date.now()}`, title: app?.name || "Nouvel onglet", url: app?.url || "about:blank", secret: false, muted: false, pinned: false };
+    S.tabsByApp[appId] = [tab];
+    D.tabById.set(tab.id, tab);
   }
   return S.tabsByApp[appId];
 }
@@ -217,11 +265,7 @@ function activeTab() {
   return t;
 }
 function visibleWorkspaceApps() {
-  return S.workspaces.flatMap(w =>
-    (S.appsByWorkspace[w.id] || [])
-      .filter(a => (S.showHiddenApps || !a.hidden) && (!S.hideCachableApps || !a.cachable))
-      .map(a => ({ workspaceId: w.id, app: a }))
-  );
+  return D.visibleWorkspaceApps;
 }
 function splitPane(side) {
   if (!S.splitView) return null;
@@ -362,7 +406,7 @@ function updateSplitPaneUrl(side, url) {
 }
 function addWorkspace() {
   const id = `group-${Date.now()}`;
-  const ws = { id, name:`Groupe ${S.workspaces.length + 1}`, icon: String(S.workspaces.length + 1).slice(-1), iconImage:"", color:"#f8f3ea", highlightColor:"", priority: S.workspaces.length + 1, shortcut:"", collapsed: false };
+  const ws = { id, name:`Groupe ${S.workspaces.length + 1}`, icon: String(S.workspaces.length + 1).slice(-1), iconImage:"", color:"#f8f3ea", backgroundColor:"transparent", highlightColor:"", priority: S.workspaces.length + 1, shortcut:"", collapsed: false };
   S.workspaces = [...S.workspaces, ws];
   S.appsByWorkspace[id] = []; S.activeAppByWorkspace[id] = null; S.activeWorkspaceId = id;
   ui.propertiesWorkspaceId = id; commit();
@@ -370,7 +414,7 @@ function addWorkspace() {
 function addCustomApp({ name, url }) {
   const normalized = normUrl(url);
   const id = `${String(name).toLowerCase().replace(/[^a-z0-9]+/g,"-")}-${Date.now()}`;
-  const app = { id, name: String(name).trim() || "App", url: normalized, color:"#e16f43", highlightColor:"", iconImage:"", notifications:true, notificationCount:0, hidden:false, cachable:false, priority:0, secret:false, maskUrl:false };
+  const app = { id, name: String(name).trim() || "App", url: normalized, color:"#e16f43", backgroundColor:"transparent", highlightColor:"", iconImage:"", notifications:true, notificationCount:0, hidden:false, cachable:false, priority:0, secret:false, maskUrl:false };
   S.appsByWorkspace[S.activeWorkspaceId] = [...activeApps(), app];
   S.activeAppByWorkspace[S.activeWorkspaceId] = id;
   S.tabsByApp[id] = [{ id:`${id}-home`, title: app.name, url: normalized, secret: false, muted: false, pinned: false }];
@@ -380,6 +424,7 @@ function updateAppProperties(appId, fd) {
   const app = findApp(appId); if (!app) return;
   app.name = String(fd.get("name") || app.name).trim();
   app.url = normUrl(fd.get("url")); app.color = String(fd.get("color") || app.color);
+  app.backgroundColor = String(fd.get("backgroundColor") || "transparent");
   app.highlightColor = String(fd.get("highlightColor") || ""); app.iconImage = String(fd.get("iconImage") || "").trim();
   app.notifications = fd.get("notifications") === "on"; app.notificationCount = Number(fd.get("notificationCount") || 0);
   app.priority = Number(fd.get("priority") || 0); app.cachable = fd.get("cachable") === "on";
